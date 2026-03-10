@@ -1,0 +1,10 @@
+[gd_scene load_steps=1 format=2]
+
+[ext_resource path="res://addons/demo/demo_scene.gd" type="Script" id="1"]
+
+[Node]
+name="AddonDemo"
+type="Control"
+script = ExtResource( 1 )
+
+# The scene builds its UI at runtime in the attached script (demo_scene.gd)
