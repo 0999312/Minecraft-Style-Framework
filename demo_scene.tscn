@@ -1,0 +1,50 @@
+[gd_scene load_steps=2 format=2]
+
+[ext_resource path="res://path_to_resource" type="ResourceLocation" id="1"]
+[ext_resource path="res://path_to_registry" type="Registry" id="2"]
+[ext_resource path="res://path_to_tag" type="Tag" id="3"]
+[ext_resource path="res://path_to_event" type="EventBus" id="4"]
+[ext_resource path="res://path_to_i18n" type="I18n" id="5"]
+
+[Node]
+name="DemoScene"
+type="Node"
+
+# UI Node displaying features
+[Node]
+name="ResourceNode"
+type="Control"
+[script]
+extends Control
+# Code to demonstrate ResourceLocation
+
+[Node]
+name="RegistryNode"
+type="Control"
+[script]
+extends Control
+# Code to demonstrate Registry System
+
+[Node]
+name="TagNode"
+type="Control"
+[script]
+extends Control
+# Code to demonstrate Tag System
+
+[Node]
+name="EventBusNode"
+type="Control"
+[script]
+extends Control
+# Code to demonstrate EventBus
+
+[Node]
+name="I18nNode"
+type="Control"
+[script]
+extends Control
+# Code to demonstrate I18n System
+
+# Add functionality to show all features in UI.
+
