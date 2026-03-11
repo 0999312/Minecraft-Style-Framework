@@ -15,11 +15,8 @@ static func from_string(location_str: String) -> ResourceLocation:
 		return null
 	return ResourceLocation.new(parts[0], parts[1])
 
-func to_string() -> String:
-	return "%s:%s" % [namespace_id, id]
-
 func _to_string() -> String:
-	return to_string()
+	return "%s:%s" % [namespace_id, id]
 
 func equals(other: ResourceLocation) -> bool:
 	return namespace_id == other.namespace_id and id == other.id

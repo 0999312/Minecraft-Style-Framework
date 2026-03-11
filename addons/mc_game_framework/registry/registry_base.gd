@@ -7,12 +7,14 @@ func register(id: ResourceLocation, entry: Variant) -> void:
 	var key = id.to_string()
 	if _entries.has(key):
 		push_warning("Overwriting registry entry: ", key)
+	print(id.to_string() + " registered")
 	_entries[key] = entry
 
 func unregister(id: ResourceLocation) -> bool:
 	var key = id.to_string()
 	if _entries.has(key):
 		_entries.erase(key)
+		print(id.to_string() + " unregistered")
 		return true
 	return false
 
@@ -25,7 +27,7 @@ func has_entry(id: ResourceLocation) -> bool:
 func get_all_entries() -> Dictionary:
 	return _entries.duplicate()
 
-func get_all_keys() -> Array[String]:
+func get_all_keys() -> Array:
 	return _entries.keys()
 
 func clear() -> void:

@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://bk3ylpdjx2u5x"]
+
+[node name="Sword" type="Node2D" unique_id=795584499]
+
+[node name="ColorRect" type="ColorRect" parent="." unique_id=93933574]
+offset_right = 40.0
+offset_bottom = 40.0
+color = Color(1, 0, 0, 1)

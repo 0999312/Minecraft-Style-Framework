@@ -1,8 +1,10 @@
 [gd_scene format=3 uid="uid://bfsj356pqcd3w"]
 
+[ext_resource type="Script" uid="uid://cxs6xk7sjbjej" path="res://plugin_test.gd" id="1_0e48y"]
 [ext_resource type="Texture2D" uid="uid://dll3i6a8wgtb3" path="res://icon.svg" id="1_t3rlu"]
 
 [node name="Node2D" type="Node2D" unique_id=1469227687]
+script = ExtResource("1_0e48y")
 
 [node name="Node2D" type="Node2D" parent="." unique_id=713864609]
 position = Vector2(250, 395)
@@ -10,5 +12,5 @@ position = Vector2(250, 395)
 [node name="Sprite2D" type="Sprite2D" parent="Node2D" unique_id=1120138429]
 
 [node name="Icon" type="Sprite2D" parent="Node2D" unique_id=1724499058]
-position = Vector2(-26, -137)
+position = Vector2(836, 189)
 texture = ExtResource("1_t3rlu")
