@@ -19,10 +19,12 @@ func publish(event: Event) -> void:
 	if _listeners.has(event_type):
 		var listeners_copy = _listeners[event_type].duplicate()
 		for listener in listeners_copy:
+			# 如果事件已被取消，停止派发后续监听器
+			if event.is_cancelled():
+				break
 			listener.call(event)
 
 func bind_signal(signal_target: Signal, event_factory: Callable) -> Signal:
-	# 使用可变参数收集信号的所有参数
 	var callable = func(...args):
 		var event = event_factory.callv(args)
 		if event is Event:
@@ -30,4 +32,4 @@ func bind_signal(signal_target: Signal, event_factory: Callable) -> Signal:
 		else:
 			push_error("Event factory must return an Event instance")
 	signal_target.connect(callable)
-	return signal_target  # 返回原始信号，但注意断开需使用相同的 callable
+	return signal_target

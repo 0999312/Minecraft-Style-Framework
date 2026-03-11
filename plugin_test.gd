@@ -48,11 +48,9 @@ func _ready() -> void:
 	EventBus.subscribe("SignalEvent", _on_signal_event)
 	
 	# 信号联动：按钮信号 -> 事件
-	var btn_signal = _signal_button as Button
-	if btn_signal:
-		EventBus.bind_signal(btn_signal.pressed, func():
-			return SignalEvent.new(btn_signal, "pressed")
-		)
+	EventBus.bind_signal(_signal_button.pressed, func():
+		return SignalEvent.new(_signal_button, "pressed")
+	)
 	
 	# 计时器信号演示
 	var timer = Timer.new()
@@ -60,6 +58,11 @@ func _ready() -> void:
 	timer.one_shot = true
 	add_child(timer)
 	timer.start()
+	if _signal_button:
+		EventBus.bind_signal(_signal_button.pressed, func():
+			return SignalEvent.new(_signal_button, "pressed")
+		)
+	# 计时器信号演示
 	EventBus.bind_signal(timer.timeout, func():
 		return SignalEvent.new(timer, "timeout")
 	)
@@ -71,7 +74,7 @@ func _ready() -> void:
 	print("Item list child count: ", item_list.get_child_count())
 
 func setup_ui() -> void:
-	# 创建主容器（全屏）
+	# 主容器
 	var main = VBoxContainer.new()
 	main.anchor_right = 1.0
 	main.anchor_bottom = 1.0
@@ -84,12 +87,12 @@ func setup_ui() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main.add_child(title)
 	
-	# 中间水平分割：左侧物品列表和标签，右侧事件日志
+	# 水平分割
 	var hsplit = HSplitContainer.new()
 	hsplit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	main.add_child(hsplit)
 	
-	# 左侧面板：标签过滤 + 物品列表
+	# 左侧面板
 	var left_panel = VBoxContainer.new()
 	left_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left_panel.custom_minimum_size.x = 400
@@ -106,18 +109,17 @@ func setup_ui() -> void:
 	items_label.text = "Items:"
 	left_panel.add_child(items_label)
 	
-	# 物品列表（可滚动）
-	var scroll = ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left_panel.add_child(scroll)
-	_scroll = scroll  # 保存引用
+	# 物品列表滚动区域
+	_scroll = ScrollContainer.new()
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left_panel.add_child(_scroll)
 	
 	item_list = VBoxContainer.new()
 	item_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(item_list)
+	_scroll.add_child(item_list)
 	
-	# 右侧事件日志
+	# 右侧面板
 	var right_panel = VBoxContainer.new()
 	right_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right_panel.custom_minimum_size.x = 300
@@ -155,11 +157,9 @@ func setup_ui() -> void:
 	btn_spawn_arrow.pressed.connect(_on_spawn_arrow)
 	btn_panel.add_child(btn_spawn_arrow)
 	
-	# 保存 SignalButton 引用
 	_signal_button = Button.new()
 	_signal_button.text = "Trigger Signal Event"
 	btn_panel.add_child(_signal_button)
-	
 	# 世界层（用于放置生成的物品）
 	world = Node2D.new()
 	world.name = "World"
