@@ -7,6 +7,7 @@ var tag_filter: VBoxContainer
 var event_log: VBoxContainer
 var world: Node2D
 var _signal_button: Button  # 新增：保存 SignalButton 引用
+var _lang_demo_label: Label  # I18n 演示标签
 var _scroll: ScrollContainer  # 新增，用于调试
 # 缓存物品ID对应的UI行控件
 var item_rows: Dictionary = {}  # 物品ID字符串 -> HBoxContainer
@@ -46,6 +47,12 @@ func _ready() -> void:
 	# 订阅事件
 	EventBus.subscribe("ItemUsedEvent", _on_item_used)
 	EventBus.subscribe("SignalEvent", _on_signal_event)
+	EventBus.subscribe("LanguageChangedEvent", _on_language_changed)
+	
+	# 加载 I18n 翻译文件并设置默认语言
+	I18NManager.load_translation("en", "res://demo/lang/en.json")
+	I18NManager.load_translation("zh_CN", "res://demo/lang/zh_CN.json")
+	I18NManager.set_language("en")
 	
 	# 信号联动：按钮信号 -> 事件
 	EventBus.bind_signal(_signal_button.pressed, func():
@@ -155,6 +162,29 @@ func setup_ui() -> void:
 	_signal_button = Button.new()
 	_signal_button.text = "Trigger Signal Event"
 	btn_panel.add_child(_signal_button)
+	
+	# I18n 演示区域
+	var lang_panel = HBoxContainer.new()
+	lang_panel.add_theme_constant_override("separation", 8)
+	main.add_child(lang_panel)
+	
+	var lang_section_label = Label.new()
+	lang_section_label.text = "I18n:"
+	lang_panel.add_child(lang_section_label)
+	
+	_lang_demo_label = Label.new()
+	_lang_demo_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lang_panel.add_child(_lang_demo_label)
+	
+	var btn_en = Button.new()
+	btn_en.text = "English"
+	btn_en.pressed.connect(func(): I18NManager.set_language("en"))
+	lang_panel.add_child(btn_en)
+	
+	var btn_zh = Button.new()
+	btn_zh.text = "中文"
+	btn_zh.pressed.connect(func(): I18NManager.set_language("zh_CN"))
+	lang_panel.add_child(btn_zh)
 	# 世界层（用于放置生成的物品）
 	world = Node2D.new()
 	world.name = "World"
@@ -332,6 +362,14 @@ func _on_item_used(event: ItemUsedEvent) -> void:
 func _on_signal_event(event: SignalEvent) -> void:
 	var src = event.get_source_node()
 	add_event_log("Event received: Signal from " + (src.name if src else "null") + "." + event.signal_name)
+
+func _on_language_changed(event: LanguageChangedEvent) -> void:
+	_refresh_i18n_labels()
+	add_event_log("LanguageChangedEvent: switched to [" + event.lang_code + "]")
+
+func _refresh_i18n_labels() -> void:
+	if _lang_demo_label:
+		_lang_demo_label.text = I18NManager.get_text("demo.greeting")
 
 func _on_spawn_sword() -> void:
 	_spawn_item(ResourceLocation.from_string("demo:sword"), Vector2(100, 300))

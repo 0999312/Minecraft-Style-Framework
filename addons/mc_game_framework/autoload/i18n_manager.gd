@@ -1,7 +1,5 @@
 extends Node
 
-signal language_changed(lang_code: String)
-
 # 加载某个语言的 JSON 翻译文件，并注册到 TranslationServer
 func load_translation(lang_code: String, file_path: String) -> bool:
 	var file = FileAccess.open(file_path, FileAccess.READ)
@@ -52,10 +50,10 @@ func _remove_translation(lang_code: String) -> void:
 			TranslationServer.remove_translation(t)
 			break
 
-# 切换当前语言
+# 切换当前语言，并通过 EventBus 发布 LanguageChangedEvent
 func set_language(lang_code: String) -> void:
 	TranslationServer.set_locale(lang_code)
-	language_changed.emit(lang_code)
+	EventBus.publish(LanguageChangedEvent.new(lang_code))
 
 # 获取当前语言代码
 func get_current_language() -> String:

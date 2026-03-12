@@ -1,0 +1,11 @@
+{
+	"demo.title": "Godot 4 Game Framework Demo",
+	"demo.filter_label": "Filter by Tag:",
+	"demo.items_label": "Items:",
+	"demo.event_log_label": "Event Log:",
+	"demo.i18n_label": "Language / I18n Demo",
+	"demo.greeting": "Hello! Use the buttons to switch language.",
+	"item.iron_sword": "Iron Sword",
+	"item.bow": "Bow",
+	"item.arrow": "Arrow"
+}
