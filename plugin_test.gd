@@ -41,7 +41,6 @@ func _ready() -> void:
 	initialize_registries(item_reg, tag_reg)
 	
 	# 刷新UI
-	refresh_item_list(item_reg, tag_reg)
 	refresh_tag_filters(tag_reg)
 	
 	# 订阅事件
@@ -223,61 +222,6 @@ func initialize_registries(item_reg: ItemRegistry, tag_reg: TagRegistry) -> void
 	ranged_tag.add_entry(bow_id)
 	ranged_tag.add_entry(arrow_id)
 
-func refresh_item_list(item_reg: ItemRegistry, tag_reg: TagRegistry) -> void:
-	# 清空现有列表
-	for child in item_list.get_children():
-		child.queue_free()
-	item_rows.clear()
-	
-	# 遍历所有物品
-	for key in item_reg.get_all_keys():
-		var id = ResourceLocation.from_string(key)
-		if not id:
-			continue
-		var info = item_reg.get_item(id)
-		if not info:
-			continue
-		
-		# 创建一行
-		var row = HBoxContainer.new()
-		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.name = id.to_string()
-		print("item: " + id.to_string())
-		# 颜色块代表物品图标
-		var color_rect = ColorRect.new()
-		color_rect.custom_minimum_size = Vector2(30, 30)
-		color_rect.size = Vector2(30, 30)
-		# 根据物品设置颜色
-		if id.id == "sword":
-			color_rect.color = Color.GRAY
-		elif id.id == "bow":
-			color_rect.color = Color.BROWN
-		elif id.id == "arrow":
-			color_rect.color = Color.YELLOW
-		else:
-			color_rect.color = Color.WHITE
-		row.add_child(color_rect)
-		
-		# 物品名称
-		var name_label = Label.new()
-		name_label.text = info.item_name
-		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(name_label)
-		
-		# 标签显示
-		var tag_label = Label.new()
-		tag_label.text = _get_tags_string(id, tag_reg)
-		row.add_child(tag_label)
-		
-		# 使用按钮
-		var use_btn = Button.new()
-		use_btn.text = "Use"
-		use_btn.pressed.connect(_on_use_item.bind(id))
-		row.add_child(use_btn)
-		
-		item_list.add_child(row)
-		item_rows[key] = row
-
 func _get_tags_string(item_id: ResourceLocation, tag_reg: TagRegistry) -> String:
 	var tags = []
 	for tag_key in tag_reg.get_all_keys():
@@ -320,12 +264,13 @@ func _apply_filter() -> void:
 	var tag_reg = RegistryManager.get_registry("tag")
 	if not tag_reg:
 		return
+	var item_reg = RegistryManager.get_registry("item")
+	if not item_reg:
+		return	
 	print("Apply Filter: " + current_filter)
-	for key in item_rows:
-		var row = item_rows[key]
+	for key in item_reg.get_all_keys():
 		var item_id = ResourceLocation.from_string(key)
 		if not item_id:
-			row.visible = false
 			continue
 		
 		var visible = false
@@ -337,8 +282,7 @@ func _apply_filter() -> void:
 				visible = tag_reg.has_entry_in_tag(filter_id, item_id)
 			else:
 				visible = false
-		row.visible = visible
-		print("Item: " + key + (" true" if visible else " false"))
+		add_event_log("Tag %s for Item: %s is %s" % [current_filter, key, "true" if visible else "false"])
 
 func add_event_log(message: String) -> void:
 	var timestamp = Time.get_time_string_from_system()
