@@ -1,0 +1,11 @@
+{
+	"demo.title": "Godot 4 游戏框架演示",
+	"demo.filter_label": "按标签过滤：",
+	"demo.items_label": "物品：",
+	"demo.event_log_label": "事件日志：",
+	"demo.i18n_label": "语言 / 国际化演示",
+	"demo.greeting": "你好！使用按钮切换语言。",
+	"item.iron_sword": "铁剑",
+	"item.bow": "弓",
+	"item.arrow": "箭"
+}

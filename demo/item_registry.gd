@@ -27,3 +27,9 @@ func instantiate_item(id: ResourceLocation) -> Node:
 		else:
 			push_error("Invalid script in ItemInfo for ", id.to_string())
 	return null
+
+func _validate_entry(entry: Variant) -> bool:
+	return entry is ItemInfo
+
+func _get_expected_type_name() -> String:
+	return "ItemInfo"
