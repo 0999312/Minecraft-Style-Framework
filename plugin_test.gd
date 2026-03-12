@@ -58,11 +58,6 @@ func _ready() -> void:
 	timer.one_shot = true
 	add_child(timer)
 	timer.start()
-	if _signal_button:
-		EventBus.bind_signal(_signal_button.pressed, func():
-			return SignalEvent.new(_signal_button, "pressed")
-		)
-	# 计时器信号演示
 	EventBus.bind_signal(timer.timeout, func():
 		return SignalEvent.new(timer, "timeout")
 	)
@@ -335,7 +330,8 @@ func _on_item_used(event: ItemUsedEvent) -> void:
 	add_event_log("Event received: ItemUsed - " + event.item_id.to_string())
 
 func _on_signal_event(event: SignalEvent) -> void:
-	add_event_log("Event received: Signal from " + event.source_node.name + "." + event.signal_name)
+	var src = event.get_source_node()
+	add_event_log("Event received: Signal from " + (src.name if src else "null") + "." + event.signal_name)
 
 func _on_spawn_sword() -> void:
 	_spawn_item(ResourceLocation.from_string("demo:sword"), Vector2(100, 300))

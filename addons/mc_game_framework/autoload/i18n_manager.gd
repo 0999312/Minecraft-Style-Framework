@@ -1,5 +1,7 @@
 extends Node
 
+signal language_changed(lang_code: String)
+
 # 加载某个语言的 JSON 翻译文件，并注册到 TranslationServer
 func load_translation(lang_code: String, file_path: String) -> bool:
 	var file = FileAccess.open(file_path, FileAccess.READ)
@@ -13,17 +15,34 @@ func load_translation(lang_code: String, file_path: String) -> bool:
 		printerr("JSON parsing failed or invalid format: file must contain a key-value dictionary")
 		return false
 
+	var flat: Dictionary = {}
+	_flatten_dict(data, "", flat)
+
 	var translation = Translation.new()
 	translation.locale = lang_code
 
-	for key in data:
-		translation.add_message(key, data[key])
+	for key in flat:
+		var value = flat[key]
+		if typeof(value) != TYPE_STRING:
+			push_warning("I18NManager: skipping non-string value for key '%s'" % key)
+			continue
+		translation.add_message(key, value)
 
 	_remove_translation(lang_code)
 	TranslationServer.add_translation(translation)
 
-	print("Language [", lang_code, "] loaded successfully with ", data.size(), " entries")
+	print("Language [", lang_code, "] loaded successfully with ", flat.size(), " entries")
 	return true
+
+# 递归展平嵌套字典，键用 '.' 连接
+func _flatten_dict(source: Dictionary, prefix: String, output: Dictionary) -> void:
+	for key in source:
+		var full_key = (prefix + "." + key) if prefix != "" else key
+		var value = source[key]
+		if typeof(value) == TYPE_DICTIONARY:
+			_flatten_dict(value, full_key, output)
+		else:
+			output[full_key] = value
 
 # 辅助函数：移除已注册的指定语言翻译
 func _remove_translation(lang_code: String) -> void:
@@ -36,6 +55,7 @@ func _remove_translation(lang_code: String) -> void:
 # 切换当前语言
 func set_language(lang_code: String) -> void:
 	TranslationServer.set_locale(lang_code)
+	language_changed.emit(lang_code)
 
 # 获取当前语言代码
 func get_current_language() -> String:
