@@ -8,6 +8,7 @@ func _enter_tree():
 	_register_autoload("RegistryManager", "res://addons/mc_game_framework/autoload/registry_manager.gd")
 	_register_autoload("EventBus", "res://addons/mc_game_framework/autoload/event_bus.gd")
 	_register_autoload("I18NManager", "res://addons/mc_game_framework/autoload/i18n_manager.gd")
+	_register_autoload("UIManager", "res://addons/mc_game_framework/autoload/ui_manager.gd")
 	print("[MinecraftStyleFramework] Editor plugin enabled. Autoloads registered.")
 
 # 内部方法：检查并注册 Autoload
@@ -17,6 +18,7 @@ func _register_autoload(name: String, path: String) -> void:
 
 func _exit_tree():
 	# 自动卸载 Autoload 单例
+	_unregister_autoload("UIManager")
 	_unregister_autoload("RegistryManager")
 	_unregister_autoload("EventBus")
 	_unregister_autoload("I18NManager")
