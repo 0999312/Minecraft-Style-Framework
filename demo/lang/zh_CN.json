@@ -7,5 +7,21 @@
 	"demo.greeting": "你好！使用按钮切换语言。",
 	"item.iron_sword": "铁剑",
 	"item.bow": "弓",
-	"item.arrow": "箭"
+	"item.arrow": "箭",
+	"ui.main_menu.title": "UI 框架演示",
+	"ui.main_menu.settings": "设置",
+	"ui.main_menu.inventory": "背包",
+	"ui.main_menu.show_toast": "显示提示",
+	"ui.main_menu.show_popup": "显示弹窗",
+	"ui.main_menu.current_lang": "当前语言：{0}",
+	"ui.main_menu.switch_lang": "切换语言",
+	"ui.settings.title": "设置",
+	"ui.settings.volume": "音量",
+	"ui.inventory.title": "背包",
+	"ui.common.back": "返回",
+	"ui.common.confirm": "确认",
+	"ui.common.cancel": "取消",
+	"ui.toast.item_obtained": "获得物品！",
+	"ui.popup.confirm_message": "你确定吗？",
+	"ui.hud.overlay_text": "HUD 覆盖层（中文）"
 }
