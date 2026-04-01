@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://demo/ui/demo_ui_entry.gd" id="1_entry"]
+
+[node name="DemoUIEntry" type="Node"]
+script = ExtResource("1_entry")
