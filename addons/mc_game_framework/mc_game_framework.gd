@@ -2,6 +2,8 @@
 extends EditorPlugin
 
 var _panel_instance: Control = null
+var _codec_inspector: CodecResourceInspectorPlugin = null
+var _component_inspector: ComponentInspectorPlugin = null
 
 func _enter_tree():
 	# 自动注册 Autoload 单例
@@ -9,7 +11,14 @@ func _enter_tree():
 	_register_autoload("EventBus", "res://addons/mc_game_framework/autoload/event_bus.gd")
 	_register_autoload("I18NManager", "res://addons/mc_game_framework/autoload/i18n_manager.gd")
 	_register_autoload("UIManager", "res://addons/mc_game_framework/autoload/ui_manager.gd")
-	print("[MinecraftStyleFramework] Editor plugin enabled. Autoloads registered.")
+
+	# 注册编辑器 Inspector 插件
+	_codec_inspector = CodecResourceInspectorPlugin.new()
+	add_inspector_plugin(_codec_inspector)
+	_component_inspector = ComponentInspectorPlugin.new()
+	add_inspector_plugin(_component_inspector)
+
+	print("[MinecraftStyleFramework] Editor plugin enabled. Autoloads and inspectors registered.")
 
 # 内部方法：检查并注册 Autoload
 func _register_autoload(name: String, path: String) -> void:
@@ -17,12 +26,20 @@ func _register_autoload(name: String, path: String) -> void:
 	print("[MinecraftStyleFramework] Autoload registered: %s -> %s" % [name, path])
 
 func _exit_tree():
+	# 卸载编辑器 Inspector 插件
+	if _codec_inspector:
+		remove_inspector_plugin(_codec_inspector)
+		_codec_inspector = null
+	if _component_inspector:
+		remove_inspector_plugin(_component_inspector)
+		_component_inspector = null
+
 	# 自动卸载 Autoload 单例
 	_unregister_autoload("UIManager")
 	_unregister_autoload("RegistryManager")
 	_unregister_autoload("EventBus")
 	_unregister_autoload("I18NManager")
-	print("[MinecraftStyleFramework] Editor plugin disabled. Autoloads unregistered.")
+	print("[MinecraftStyleFramework] Editor plugin disabled. Autoloads and inspectors unregistered.")
 
 # 内部方法：卸载 Autoload
 func _unregister_autoload(name: String) -> void:
