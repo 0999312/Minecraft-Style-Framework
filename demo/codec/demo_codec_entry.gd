@@ -91,9 +91,9 @@ static func display_name_component_type() -> ComponentType:
 # ═══════════════════════════════════════════════════════
 
 func _ready() -> void:
-	print("=" .repeat(60))
+	print("=".repeat(60))
 	print("  Codec / Component System Demo")
-	print("=" .repeat(60))
+	print("=".repeat(60))
 
 	_demo_resource_location_validation()
 	_demo_basic_codecs()
@@ -102,9 +102,9 @@ func _ready() -> void:
 	_demo_codec_resource()
 	_demo_data_components()
 
-	print("\n" + "=" .repeat(60))
+	print("\n" + "=".repeat(60))
 	print("  All demos completed!")
-	print("=" .repeat(60))
+	print("=".repeat(60))
 
 # ── Demo 1: ResourceLocation 校验 ─────────────────────
 
