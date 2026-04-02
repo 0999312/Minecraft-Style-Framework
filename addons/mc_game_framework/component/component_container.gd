@@ -86,16 +86,22 @@ func encode(ops: DynamicOps) -> DataResult:
 	r._diagnostics = diagnostics
 	return r
 
-## 从 Map 数据解码组件（需要提供类型注册表用于查找 ComponentType）
-## type_registry: Dictionary { id_string -> ComponentType }
-func decode(data: Variant, ops: DynamicOps, type_registry: Dictionary) -> DataResult:
+## 从 Map 数据解码组件
+## - type_registry 可传 Dictionary{id_string -> ComponentType}
+## - 或传入 ComponentTypeRegistry
+## - 或留空，默认从 RegistryManager 的 "component_type" 注册表读取
+func decode(data: Variant, ops: DynamicOps, type_registry: Variant = null) -> DataResult:
+	var registry_result := _resolve_type_registry(type_registry)
+	if registry_result.is_error():
+		return registry_result
 	var entries_result := ops.get_map_entries(data)
 	if entries_result.is_error():
 		return entries_result
 	var entries: Dictionary = entries_result.get_value()
+	var resolved_type_registry: Dictionary = registry_result.get_value()
 	var diagnostics: Array = []
 	for key in entries:
-		var type: ComponentType = type_registry.get(key)
+		var type: ComponentType = resolved_type_registry.get(key)
 		if type == null:
 			diagnostics.append(DataResult.Diagnostic.new(
 				DataResult.DiagnosticLevel.WARNING,
@@ -113,6 +119,29 @@ func decode(data: Variant, ops: DynamicOps, type_registry: Dictionary) -> DataRe
 	var r := DataResult.success(self)
 	r._diagnostics = diagnostics
 	return r
+
+func _resolve_type_registry(type_registry: Variant) -> DataResult:
+	if type_registry == null:
+		return _resolve_registry_from_manager(ComponentTypeRegistry.REGISTRY_KEY)
+	if type_registry is Dictionary:
+		return DataResult.success(type_registry)
+	if type_registry is ComponentTypeRegistry:
+		return DataResult.success((type_registry as ComponentTypeRegistry).get_all_component_types())
+	if type_registry is String:
+		return _resolve_registry_from_manager(type_registry)
+	return DataResult.error("ComponentContainer.decode: type_registry must be Dictionary, ComponentTypeRegistry, String, or null")
+
+func _resolve_registry_from_manager(registry_name: String) -> DataResult:
+	var registry = RegistryManager.get_registry(registry_name)
+	if registry == null:
+		return DataResult.error(
+			"ComponentContainer.decode: ComponentTypeRegistry '%s' not found. Call RegistryManager.register_registry(\"%s\", ComponentTypeRegistry.new()) first" % [registry_name, registry_name]
+		)
+	if not registry is ComponentTypeRegistry:
+		return DataResult.error(
+			"ComponentContainer.decode: registry '%s' must be a ComponentTypeRegistry" % registry_name
+		)
+	return DataResult.success((registry as ComponentTypeRegistry).get_all_component_types())
 
 # ── Patch / 合并 ──────────────────────────────────────
 

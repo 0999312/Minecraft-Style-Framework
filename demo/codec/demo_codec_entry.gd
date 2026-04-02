@@ -227,8 +227,20 @@ func _demo_codec_resource() -> void:
 func _demo_data_components() -> void:
 	print("\n--- Demo 6: Data Components ---")
 
+	if not RegistryManager.has_registry(ComponentTypeRegistry.REGISTRY_KEY):
+		RegistryManager.register_registry(ComponentTypeRegistry.REGISTRY_KEY, ComponentTypeRegistry.new())
+	var component_registry := RegistryManager.get_registry(ComponentTypeRegistry.REGISTRY_KEY) as ComponentTypeRegistry
+
 	var health_type := health_component_type()
 	var name_type := display_name_component_type()
+	if not component_registry.has_component_type(health_type.id):
+		component_registry.register_component_type(health_type)
+	if not component_registry.has_component_type(name_type.id):
+		component_registry.register_component_type(name_type)
+
+	print("  Component registry key: %s" % ComponentTypeRegistry.REGISTRY_KEY)
+	print("    registered health? %s" % str(component_registry.has_component_type(health_type.id)))
+	print("    registered display_name? %s" % str(component_registry.has_component_type(name_type.id)))
 
 	# 挂载到 Node
 	var node := Node.new()
@@ -248,6 +260,11 @@ func _demo_data_components() -> void:
 	var encode_result := container.encode(JsonOps.INSTANCE)
 	if encode_result.is_success():
 		print("    Serialized: %s" % JsonOps.to_json_string(encode_result.get_value()))
+		var decoded_container := ComponentContainer.new()
+		var decode_result := decoded_container.decode(encode_result.get_value(), JsonOps.INSTANCE)
+		if decode_result.is_success():
+			print("    Decoded via RegistryManager: health = %s" % str(decoded_container.get_component(health_type)))
+			print("    Decoded via RegistryManager: display_name = %s" % str(decoded_container.get_component(name_type)))
 
 	# 挂载到 Resource
 	var res := Resource.new()

@@ -529,7 +529,24 @@ var HEALTH = ComponentType.Builder.new(
 ).build()
 ```
 
-### 7.2 Attach Components to Objects
+### 7.2 Register Component Types via RegistryManager
+
+Data Component types should use the existing registry system. Their registry is a normal `RegistryBase` subclass, **not** an Autoload.
+
+```gdscript
+if not RegistryManager.has_registry(ComponentTypeRegistry.REGISTRY_KEY):
+    RegistryManager.register_registry(
+        ComponentTypeRegistry.REGISTRY_KEY,
+        ComponentTypeRegistry.new()
+    )
+
+var component_reg: ComponentTypeRegistry = RegistryManager.get_registry(
+    ComponentTypeRegistry.REGISTRY_KEY
+)
+component_reg.register_component_type(HEALTH)
+```
+
+### 7.3 Attach Components to Objects
 
 ```gdscript
 # Attach to any Node
@@ -544,12 +561,28 @@ var container = ComponentHost.get_container(node)
 var json = container.encode(JsonOps.INSTANCE)
 ```
 
-### 7.3 Persistence Policies
+### 7.4 Decode Through the Existing Registry System
+
+```gdscript
+var decoded_container := ComponentContainer.new()
+var result = decoded_container.decode(json.get_value(), JsonOps.INSTANCE)
+
+# Optional: still supports explicit registries
+var result2 = decoded_container.decode(
+    json.get_value(),
+    JsonOps.INSTANCE,
+    component_reg
+)
+```
+
+When no explicit registry is provided, `ComponentContainer.decode()` looks up the `"component_type"` registry from `RegistryManager`.
+
+### 7.5 Persistence Policies
 - `NONE` — never serialized
 - `ALWAYS` — always serialized
 - `NON_DEFAULT` — only serialized when value differs from default (default-value pruning)
 
-### 7.4 Network Sync Tags
+### 7.6 Network Sync Tags
 - `NONE` — no network hint
 - `FULL` — intended for full-state sync
 - `TRACKED` — intended for delta/change sync
@@ -1094,7 +1127,24 @@ var HEALTH = ComponentType.Builder.new(
 ).build()
 ```
 
-### 7.2 挂载组件到对象
+### 7.2 通过 RegistryManager 注册组件类型
+
+Data Component 类型应接入现有注册表体系。其注册表是普通 `RegistryBase` 子类，**不是** Autoload。
+
+```gdscript
+if not RegistryManager.has_registry(ComponentTypeRegistry.REGISTRY_KEY):
+    RegistryManager.register_registry(
+        ComponentTypeRegistry.REGISTRY_KEY,
+        ComponentTypeRegistry.new()
+    )
+
+var component_reg: ComponentTypeRegistry = RegistryManager.get_registry(
+    ComponentTypeRegistry.REGISTRY_KEY
+)
+component_reg.register_component_type(HEALTH)
+```
+
+### 7.3 挂载组件到对象
 
 ```gdscript
 # 挂载到任意 Node
@@ -1109,12 +1159,28 @@ var container = ComponentHost.get_container(node)
 var json = container.encode(JsonOps.INSTANCE)
 ```
 
-### 7.3 持久化策略
+### 7.4 通过现有注册表体系解码
+
+```gdscript
+var decoded_container := ComponentContainer.new()
+var result = decoded_container.decode(json.get_value(), JsonOps.INSTANCE)
+
+# 也支持显式传入注册表
+var result2 = decoded_container.decode(
+    json.get_value(),
+    JsonOps.INSTANCE,
+    component_reg
+)
+```
+
+当没有显式传入注册表时，`ComponentContainer.decode()` 会默认从 `RegistryManager` 中查找 `"component_type"` 注册表。
+
+### 7.5 持久化策略
 - `NONE` — 不持久化
 - `ALWAYS` — 始终持久化
 - `NON_DEFAULT` — 仅非默认值时持久化（默认值裁剪）
 
-### 7.4 网络同步标签
+### 7.6 网络同步标签
 - `NONE` — 无网络同步提示
 - `FULL` — 用于全量同步场景
 - `TRACKED` — 用于增量/变化同步场景
