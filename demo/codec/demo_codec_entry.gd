@@ -1,10 +1,10 @@
-## Codec / DFU / Component 系统演示
+## Codec / Component 系统演示
 ##
 ## 展示：
 ## 1. 基础类型 Codec 使用
 ## 2. RecordCodecBuilder 风格组合式声明
 ## 3. JsonOps / GodotResourceOps 编解码
-## 4. DataFixerUpper 版本迁移
+## 4. CodecResource 基础用法
 ## 5. Data Component 挂载到 Node / Resource
 ## 6. ResourceLocation Mojang 风格校验
 extends Node
@@ -44,41 +44,27 @@ static func item_data_codec() -> Codec:
 		)
 	)
 
-# ═══════════════════════════════════════════════════════
-# 2. 定义一个版本迁移场景
-# ═══════════════════════════════════════════════════════
+class DemoItemResource extends CodecResource:
+	var item_name: String = ""
+	var damage: int = 0
 
-## 构建 DataFixerUpper（v1 -> v2: 添加 weight 字段, 字段 name 改为 item_name）
-static func build_item_fixer() -> DataFixerUpper:
-	var fixer := DataFixerUpper.new()
+	static func get_type_id() -> String:
+		return "demo:item_resource"
 
-	# Schema v1
-	var schema_v1 := Schema.new(1)
-	schema_v1.register_type("item", {"name": "String", "damage": "int"})
-	fixer.add_schema(schema_v1)
-
-	# Schema v2（添加 weight，改名 name -> item_name）
-	var schema_v2 := Schema.new(2)
-	schema_v2.register_type("item", {"item_name": "String", "damage": "int", "weight": "float"})
-	fixer.add_schema(schema_v2)
-
-	# Schema v3（添加 enchantable）
-	var schema_v3 := Schema.new(3)
-	schema_v3.register_type("item", {"item_name": "String", "damage": "int", "weight": "float", "enchantable": "bool"})
-	fixer.add_schema(schema_v3)
-
-	# DataFix: v1 -> v2
-	var fix_1_to_2 := DataFix.new(1, 2, "Add weight field, rename name -> item_name")
-	fix_1_to_2.add_rule(TypeRewriteRule.RenameField.new("item", "name", "item_name"))
-	fix_1_to_2.add_rule(TypeRewriteRule.AddField.new("item", "weight", 1.0))
-	fixer.add_fix(fix_1_to_2)
-
-	# DataFix: v2 -> v3
-	var fix_2_to_3 := DataFix.new(2, 3, "Add enchantable field")
-	fix_2_to_3.add_rule(TypeRewriteRule.AddField.new("item", "enchantable", false))
-	fixer.add_fix(fix_2_to_3)
-
-	return fixer
+	static func get_codec() -> Codec:
+		return Codec.record(
+			MapCodec.build(
+				[
+					Codec.STRING().field_of("item_name").for_getter(func(item: DemoItemResource): return item.item_name),
+					Codec.INT().field_of("damage").for_getter(func(item: DemoItemResource): return item.damage),
+				],
+				func(item_name: String, damage: int) -> DemoItemResource:
+					var resource := DemoItemResource.new()
+					resource.item_name = item_name
+					resource.damage = damage
+					return resource
+			)
+		)
 
 # ═══════════════════════════════════════════════════════
 # 3. 定义 ComponentType（用于 Data Component 演示）
@@ -106,14 +92,14 @@ static func display_name_component_type() -> ComponentType:
 
 func _ready() -> void:
 	print("=" .repeat(60))
-	print("  Codec / DFU / Component System Demo")
+	print("  Codec / Component System Demo")
 	print("=" .repeat(60))
 
 	_demo_resource_location_validation()
 	_demo_basic_codecs()
 	_demo_record_codec()
 	_demo_list_and_map_codec()
-	_demo_data_migration()
+	_demo_codec_resource()
 	_demo_data_components()
 
 	print("\n" + "=" .repeat(60))
@@ -164,29 +150,33 @@ func _demo_basic_codecs() -> void:
 	var bad := int_codec.decode("not a number", ops)
 	print("  INT decode('not a number') -> %s" % bad.to_string())
 
-# ── Demo 3: Record Codec (DFU 风格) ───────────────────
+# ── Demo 3: Record Codec (DFU 风格声明) ───────────────
 
 func _demo_record_codec() -> void:
-	print("\n--- Demo 3: Record Codec (DFU-style) ---")
-	var ops := JsonOps.INSTANCE
+	print("\n--- Demo 3: Record Codec (Declarative DFU-style) ---")
+	var json_ops := JsonOps.INSTANCE
+	var resource_ops := GodotResourceOps.INSTANCE
 	var codec := item_data_codec()
 
 	# 编码
 	var item := ItemData.new("Diamond Sword", 7, 1.5, true)
-	var encode_result := codec.encode(item, ops)
+	var encode_result := codec.encode(item, json_ops)
 	if encode_result.is_success():
 		var json := JsonOps.to_json_string(encode_result.get_value())
-		print("  Encode: %s" % json)
+		print("  Encode to JSON: %s" % json)
+	var resource_encode_result := codec.encode(item, resource_ops)
+	if resource_encode_result.is_success():
+		print("  Encode to Godot Resource data: %s" % str(resource_encode_result.get_value()))
 
 	# 解码
 	var json_data := {"name": "Iron Pickaxe", "damage": 4, "weight": 2.0, "enchantable": true}
-	var decode_result := codec.decode(json_data, ops)
+	var decode_result := codec.decode(json_data, json_ops)
 	if decode_result.is_success():
 		print("  Decode: %s" % str(decode_result.get_value()))
 
 	# 可选字段缺失时使用默认值
 	var partial_data := {"name": "Stick", "damage": 1}
-	var partial_result := codec.decode(partial_data, ops)
+	var partial_result := codec.decode(partial_data, json_ops)
 	if not partial_result.is_error():
 		var decoded_item: ItemData = partial_result.get_value()
 		print("  Partial decode (defaults): %s" % str(decoded_item))
@@ -212,33 +202,25 @@ func _demo_list_and_map_codec() -> void:
 	encoded = map_codec.encode(map_data, ops)
 	print("  Map encode: %s" % str(encoded.get_value()))
 
-# ── Demo 5: Data Migration (DFU) ─────────────────────
+# ── Demo 5: CodecResource ─────────────────────────────
 
-func _demo_data_migration() -> void:
-	print("\n--- Demo 5: Data Migration (DFU-style) ---")
-	var ops := JsonOps.INSTANCE
-	var fixer := build_item_fixer()
+func _demo_codec_resource() -> void:
+	print("\n--- Demo 5: CodecResource ---")
+	var res := DemoItemResource.new()
+	res.item_name = "Golden Apple"
+	res.damage = 0
 
-	# v1 数据
-	var v1_data := {"name": "Old Sword", "damage": 5}
-	print("  v1 data: %s" % str(v1_data))
+	var json_result := res.to_json_data()
+	if json_result.is_success():
+		print("  CodecResource to JSON: %s" % JsonOps.to_json_string(json_result.get_value()))
 
-	# 迁移到最新版本 (v3)
-	var result := fixer.update(v1_data, 1, ops, "item")
-	if not result.is_error():
-		print("  Migrated to v3: %s" % str(result.get_value()))
-		# 验证迁移结果
-		var migrated: Dictionary = result.get_value()
-		print("    - 'name' renamed to 'item_name': %s" % migrated.get("item_name", "MISSING"))
-		print("    - 'weight' added with default: %s" % str(migrated.get("weight", "MISSING")))
-		print("    - 'enchantable' added with default: %s" % str(migrated.get("enchantable", "MISSING")))
+	var resource_result := res.to_resource_data()
+	if resource_result.is_success():
+		print("  CodecResource to Godot Resource data: %s" % str(resource_result.get_value()))
 
-	# v2 数据迁移
-	var v2_data := {"item_name": "Half-migrated Bow", "damage": 3, "weight": 0.8}
-	print("\n  v2 data: %s" % str(v2_data))
-	var result2 := fixer.update(v2_data, 2, ops, "item")
-	if not result2.is_error():
-		print("  Migrated to v3: %s" % str(result2.get_value()))
+	var decoded_result := DemoItemResource.from_json_data({"item_name": "Stone Axe", "damage": 3})
+	if decoded_result.is_success():
+		print("  CodecResource decode: %s" % str(decoded_result.get_value()))
 
 # ── Demo 6: Data Components ──────────────────────────
 
@@ -274,12 +256,12 @@ func _demo_data_components() -> void:
 	print("    health = %s" % str(ComponentHost.get_component(res, health_type)))
 
 	# 默认值裁剪演示
-	ComponentHost.set_component(node, health_type, 20)  # 设为默认值
+	ComponentHost.set_component(node, name_type, "Unknown")  # 设为默认值
 	var container2 := ComponentHost.get_container(node)
 	var pruned := container2.encode(JsonOps.INSTANCE)
 	if pruned.is_success():
-		print("\n  After setting health=20 (default), serialized (NON_DEFAULT pruning):")
+		print("\n  After setting display_name='Unknown' (default), serialized:")
 		print("    %s" % JsonOps.to_json_string(pruned.get_value()))
-		print("    (health omitted because persistent_policy=NON_DEFAULT and value==default)")
+		print("    (display_name omitted because persistent_policy=NON_DEFAULT and value==default)")
 
 	node.queue_free()

@@ -1,10 +1,10 @@
 ## Codec — DFU 风格编解码器
 ##
-## 对齐 Mojang DFU Codec 设计：
+## 受 Mojang DFU Codec 思路启发：
 ## - encode(value, ops) -> DataResult  将运行时对象编码到 DynamicOps 载体
 ## - decode(value, ops) -> DataResult  将载体数据解码为运行时对象
 ## - 支持组合式声明：field_of / optional_field_of / list_of / map_of / either / xmap / dispatch
-## - 同一个 Codec 定义可用于 JSON / Godot Resource / Binary / Network
+## - 同一个 Codec 定义可用于多个 DynamicOps 实现（当前内置 JSON / Godot Resource）
 extends RefCounted
 class_name Codec
 

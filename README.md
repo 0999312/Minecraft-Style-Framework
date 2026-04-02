@@ -11,18 +11,18 @@
 * **EventBus**: A decoupled global event dispatching center. It supports event cancellation and can seamlessly bridge with Godot's native `Signal`.
 * **Tag System**: Easily group and classify game elements using tags (e.g., grouping all items that are "flammable") without modifying their internal code.
 * **I18n (Localization)**: A simple localization system that reads `.json` files to avoid hard-coded text.
-* **Codec System (DFU-style)**: A fully DFU-aligned combinatorial codec system for encoding/decoding data across JSON, Godot Resource (.tres/.res), Binary, and Network formats.
-* **Data Component System**: Minecraft-style data components that can be attached to any Node, Resource, or RefCounted object, with persistent/network sync policies.
-* **DataFixerUpper (DFU)**: Schema-versioned data migration framework with rewrite rules for field renaming, addition, removal, and value mapping.
+* **Codec System (DFU-style declarative codecs)**: A declarative codec system inspired by DFU for encoding/decoding data across JSON and Godot Resource (.tres/.res) formats.
+* **Data Component System**: Minecraft-style data components that can be attached to any Node, Resource, or RefCounted object, with persistence policies and optional network-sync tags.
 * **Editor Inspector Support**: Custom Inspector plugins for CodecResource validation and Component container visualization.
 
 ## 3. Installation
 1. **Get the Plugin**: Copy the entire `addons/mc_game_framework/` directory from this repository into your Godot project's `addons/` directory.
 2. **Enable the Plugin**: Open the Godot Editor, go to **Project** -> **Project Settings** -> **Plugins**, and check the enable box for `Minecraft-Style-Framework`.
-3. **Autoloads**: Once enabled, the plugin automatically registers three core singletons (Autoloads) into your project:
+3. **Autoloads**: Once enabled, the plugin automatically registers four core singletons (Autoloads) into your project:
    * `RegistryManager`
    * `EventBus`
    * `I18NManager`
+   * `UIManager`
 
 ## 4. Core Modules & Usage
 
@@ -408,20 +408,21 @@ show_toast(achievement)        toasts:[achievement]     achievement (auto-dismis
 back()                         [main_menu]              main_menu ✅ (resumed)
 ```
 
-## 6. Codec System (DFU-style)
+## 6. Codec System (DFU-style declarative codecs)
 
 ### Architecture
-The Codec system follows a 4-layer design aligned with Mojang's DataFixerUpper (DFU):
+The Codec system follows a focused 3-layer design inspired by Mojang's DFU codec style:
 
 | Layer | Responsibility | Key Classes |
 |-------|---------------|-------------|
-| **Type Layer** | Describes "what data is" | `Codec`, `MapCodec`, `DataResult` |
-| **Format Layer** | Describes "where data lives" | `DynamicOps`, `JsonOps`, `GodotResourceOps` |
-| **Migration Layer** | Describes "how to upgrade old data" | `Schema`, `DataFix`, `TypeRewriteRule`, `DataFixerUpper` |
-| **Editor Layer** | Visual editing & validation | `CodecResourceInspectorPlugin`, `ComponentInspectorPlugin` |
+| **Result Layer** | Carries decoded values, diagnostics, and partial-success state | `DataResult` |
+| **Declaration Layer** | Describes how runtime objects are encoded/decoded | `Codec`, `MapCodec` |
+| **Carrier Layer** | Adapts the same codec definition to different storage formats | `DynamicOps`, `JsonOps`, `GodotResourceOps` |
+
+Editor integration is provided through `CodecResourceInspectorPlugin` and `ComponentInspectorPlugin`.
 
 ### 6.1 DataResult (Error Handling)
-All Codec/DFU APIs return `DataResult` instead of raw values. This provides:
+All Codec APIs return `DataResult` instead of raw values. This provides:
 - **Success / Error / Partial** states
 - **Diagnostic** messages with field path tracking
 - **Functional combinators**: `map()`, `flat_map()`, `apply()`
@@ -477,7 +478,7 @@ Codec.dispatch("type", Codec.STRING(), func(type_name): return get_codec_for(typ
 ```
 
 ### 6.3 DynamicOps (Format Abstraction)
-Same codec definition works across all data formats:
+The same codec definition works across the built-in JSON and Godot Resource carriers:
 
 ```gdscript
 var codec = item_codec()
@@ -502,9 +503,6 @@ class_name MyItemResource
 static func get_type_id() -> String:
     return "mymod:item"
 
-static func get_schema_version() -> int:
-    return 1
-
 static func get_codec() -> Codec:
     return Codec.record(MapCodec.build([
         Codec.STRING().field_of("item_name").for_getter(func(r): return r.item_name),
@@ -515,29 +513,6 @@ static func get_codec() -> Codec:
 func save():
     save_to_file("res://data/my_item.tres")
 ```
-
-### 6.5 DataFixerUpper (Version Migration)
-
-```gdscript
-var fixer = DataFixerUpper.new()
-
-# Define schemas
-fixer.add_schema(Schema.new(1))  # v1: {name, damage}
-fixer.add_schema(Schema.new(2))  # v2: {item_name, damage, weight}
-
-# Define migration rules
-var fix = DataFix.new(1, 2, "Rename name->item_name, add weight")
-fix.add_rule(TypeRewriteRule.RenameField.new("item", "name", "item_name"))
-fix.add_rule(TypeRewriteRule.AddField.new("item", "weight", 1.0))
-fixer.add_fix(fix)
-
-# Migrate old data
-var result = fixer.update(old_v1_data, 1, JsonOps.INSTANCE, "item")
-# Or migrate + decode in one step
-var obj = fixer.update_and_decode(old_data, 1, latest_codec, JsonOps.INSTANCE, "item")
-```
-
-Available rewrite rules: `RenameField`, `AddField`, `RemoveField`, `MapFieldValue`, `CustomRule`.
 
 ## 7. Data Component System
 
@@ -574,6 +549,13 @@ var json = container.encode(JsonOps.INSTANCE)
 - `ALWAYS` — always serialized
 - `NON_DEFAULT` — only serialized when value differs from default (default-value pruning)
 
+### 7.4 Network Sync Tags
+- `NONE` — no network hint
+- `FULL` — intended for full-state sync
+- `TRACKED` — intended for delta/change sync
+
+These values are currently metadata on `ComponentType`; they are **not** a built-in replication system.
+
 ## 8. ResourceLocation Validation Rules
 Following Mojang's original design:
 - **Namespace**: lowercase `a-z`, digits `0-9`, `_`, `-`, `.`
@@ -605,18 +587,18 @@ Since this plugin is a brand-new project and the demo game is still under develo
 * **事件总线 (EventBus)**：解耦的事件广播与监听系统，支持阻止事件传递，并支持与 Godot 原生 `Signal` 无缝联动。
 * **标签系统 (Tag)**：用于为游戏元素打标签，方便进行分类检索（例如：所有“可燃物”物品），无需修改物品本身的数据。
 * **I18n 系统**：读取外部 JSON 文件的本地化系统，避免硬编码游戏文本。
-* **Codec 系统（DFU 风格）**：完全对齐 Mojang DFU 的组合式编解码系统，支持 JSON / Godot Resource (.tres/.res) / Binary / Network 四种载体格式。
-* **Data Component 系统**：Minecraft 风格数据组件，可挂载到任意 Node / Resource / RefCounted 对象，支持持久化/网络同步策略。
-* **DataFixerUpper (DFU)**：Schema 版本化数据迁移框架，支持字段改名、添加、移除、值映射等迁移规则。
+* **Codec 系统（DFU 风格声明式编解码）**：受 DFU 风格启发的声明式编解码系统，当前内置支持 JSON / Godot Resource (.tres/.res) 两种载体格式。
+* **Data Component 系统**：Minecraft 风格数据组件，可挂载到任意 Node / Resource / RefCounted 对象，支持持久化策略与可选网络同步标签。
 * **编辑器可视化支持**：CodecResource 自定义 Inspector 校验和 Component 容器可视编辑器。
 
 ## 3. 安装与配置
 1. **获取插件**：将本项目 `addons/mc_game_framework/` 目录完整拷贝到你的 Godot 项目的 `addons/` 目录下。
 2. **启用插件**：在 Godot 编辑器顶部菜单栏打开 **项目 (Project)** -> **项目设置 (Project Settings)** -> **插件 (Plugins)**，勾选并启用 `Minecraft-Style-Framework`。
-3. **Autoload 确认**：启用插件后，系统会自动注册三个核心单例：
+3. **Autoload 确认**：启用插件后，系统会自动注册四个核心单例：
    * `RegistryManager`
    * `EventBus`
    * `I18NManager`
+   * `UIManager`
 
 ## 4. 核心功能与用法示例
 
@@ -995,20 +977,21 @@ show_toast(achievement)        toasts:[achievement]      achievement（3秒后�
 back()                         [main_menu]               main_menu ✅（恢复）
 ```
 
-## 6. Codec 系统（DFU 风格）
+## 6. Codec 系统（DFU 风格声明式编解码）
 
 ### 架构
-Codec 系统采用四层设计，完全对齐 Mojang DataFixerUpper (DFU)：
+Codec 系统采用三层聚焦设计，受 Mojang DFU 的 Codec 风格启发：
 
 | 层级 | 职责 | 核心类 |
 |------|------|--------|
-| **类型层** | 描述"数据是什么" | `Codec`, `MapCodec`, `DataResult` |
-| **格式层** | 描述"数据存在哪种载体里" | `DynamicOps`, `JsonOps`, `GodotResourceOps` |
-| **迁移层** | 描述"旧版本如何转成新版本" | `Schema`, `DataFix`, `TypeRewriteRule`, `DataFixerUpper` |
-| **编辑器层** | 可视化编辑与校验 | `CodecResourceInspectorPlugin`, `ComponentInspectorPlugin` |
+| **结果层** | 承载解码结果、诊断信息与部分成功状态 | `DataResult` |
+| **声明层** | 描述运行时对象如何被编码/解码 | `Codec`, `MapCodec` |
+| **载体层** | 将同一份 Codec 对接到不同存储格式 | `DynamicOps`, `JsonOps`, `GodotResourceOps` |
+
+编辑器集成由 `CodecResourceInspectorPlugin` 与 `ComponentInspectorPlugin` 提供。
 
 ### 6.1 DataResult（错误处理）
-所有 Codec/DFU API 均返回 `DataResult` 而非裸值：
+所有 Codec API 均返回 `DataResult` 而非裸值：
 - **Success / Error / Partial** 三种状态
 - **Diagnostic** 诊断信息附带字段路径追踪
 - **函数式组合器**：`map()`, `flat_map()`, `apply()`
@@ -1064,7 +1047,7 @@ Codec.dispatch("type", Codec.STRING(), func(type_name): return get_codec_for(typ
 ```
 
 ### 6.3 DynamicOps（格式抽象）
-同一个 Codec 定义可用于所有数据格式：
+同一个 Codec 定义可用于当前内置的 JSON 与 Godot Resource 两种载体：
 
 ```gdscript
 var codec = item_codec()
@@ -1089,38 +1072,12 @@ class_name MyItemResource
 static func get_type_id() -> String:
     return "mymod:item"
 
-static func get_schema_version() -> int:
-    return 1
-
 static func get_codec() -> Codec:
     return Codec.record(MapCodec.build([
         Codec.STRING().field_of("item_name").for_getter(func(r): return r.item_name),
         Codec.INT().field_of("damage").for_getter(func(r): return r.damage),
     ], func(name, dmg): return MyItemResource.new()))
 ```
-
-### 6.5 DataFixerUpper（版本迁移）
-
-```gdscript
-var fixer = DataFixerUpper.new()
-
-# 定义 Schema
-fixer.add_schema(Schema.new(1))  # v1: {name, damage}
-fixer.add_schema(Schema.new(2))  # v2: {item_name, damage, weight}
-
-# 定义迁移规则
-var fix = DataFix.new(1, 2, "重命名 name->item_name，添加 weight")
-fix.add_rule(TypeRewriteRule.RenameField.new("item", "name", "item_name"))
-fix.add_rule(TypeRewriteRule.AddField.new("item", "weight", 1.0))
-fixer.add_fix(fix)
-
-# 迁移旧数据
-var result = fixer.update(old_v1_data, 1, JsonOps.INSTANCE, "item")
-# 迁移 + 解码一步完成
-var obj = fixer.update_and_decode(old_data, 1, latest_codec, JsonOps.INSTANCE, "item")
-```
-
-可用迁移规则：`RenameField`、`AddField`、`RemoveField`、`MapFieldValue`、`CustomRule`。
 
 ## 7. Data Component 系统
 
@@ -1156,6 +1113,13 @@ var json = container.encode(JsonOps.INSTANCE)
 - `NONE` — 不持久化
 - `ALWAYS` — 始终持久化
 - `NON_DEFAULT` — 仅非默认值时持久化（默认值裁剪）
+
+### 7.4 网络同步标签
+- `NONE` — 无网络同步提示
+- `FULL` — 用于全量同步场景
+- `TRACKED` — 用于增量/变化同步场景
+
+这些值目前仅作为 `ComponentType` 上的元数据标签，并**不是**框架内置的自动同步系统。
 
 ## 8. ResourceLocation 校验规则
 参考 Mojang 原版设计：

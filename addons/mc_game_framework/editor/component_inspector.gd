@@ -3,7 +3,7 @@
 ## 编辑器可视化支持：
 ## - 在 Inspector 中展示 Node/Resource 上已挂载的组件列表
 ## - 显示组件 ID、当前值、默认值差异
-## - 显示持久化/网络同步策略状态
+## - 显示持久化策略与网络同步标签
 extends EditorInspectorPlugin
 class_name ComponentInspectorPlugin
 
@@ -59,10 +59,13 @@ func _parse_begin(object: Object) -> void:
 					persist_text = "ALWAYS"
 				ComponentType.PersistentPolicy.NON_DEFAULT:
 					persist_text = "NON_DEFAULT"
-			persist_label.text = "  Persistent: %s | Network: %s" % [
-				persist_text,
-				"NONE" if type.network_sync_policy == ComponentType.NetworkSyncPolicy.NONE else "SYNC"
-			]
+			var network_text := "NONE"
+			match type.network_sync_policy:
+				ComponentType.NetworkSyncPolicy.FULL:
+					network_text = "FULL"
+				ComponentType.NetworkSyncPolicy.TRACKED:
+					network_text = "TRACKED"
+			persist_label.text = "  Persistent: %s | Network Tag: %s" % [persist_text, network_text]
 			component_box.add_child(persist_label)
 
 		add_custom_control(component_box)

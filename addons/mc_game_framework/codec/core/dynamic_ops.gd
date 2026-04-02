@@ -1,7 +1,7 @@
 ## DynamicOps — DFU 风格数据载体抽象
 ##
-## 对齐 Mojang DFU DynamicOps 设计：
-## - 将底层数据格式（JSON / Godot Resource / Binary / Network）统一抽象
+## 受 Mojang DFU DynamicOps 思路启发：
+## - 将底层数据格式（当前内置 JSON / Godot Resource）统一抽象
 ## - 上层 Codec 不关心载体，只关心读写语义
 ## - 同一个 Codec 可以对接任意 DynamicOps 实现
 extends RefCounted

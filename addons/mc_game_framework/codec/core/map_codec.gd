@@ -1,6 +1,6 @@
 ## MapCodec — DFU 风格字段级结构编解码器
 ##
-## 对齐 Mojang DFU MapCodec 设计：
+## 受 Mojang DFU MapCodec 思路启发：
 ## - 负责对象/字段级结构编解码（encode_to_map / decode_from_map）
 ## - 支持 field_of / optional_field_of 组合
 ## - 支持多字段 Record 组合（RecordCodecBuilder 风格）

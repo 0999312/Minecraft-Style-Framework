@@ -1,20 +1,16 @@
 ## CodecResource — Codec 驱动的 Godot Resource 基类
 ##
 ## 支持 Godot Resource (.tres/.res) 落盘：
-## - 每个资源脚本声明：类型 ID、Schema 版本、Codec
+## - 每个资源脚本声明：类型 ID、Codec
 ## - 通过 Codec 实现序列化/反序列化
 ## - 编辑器下可通过 Inspector 编辑并触发 Codec 校验
-## - 支持版本迁移（配合 DataFixerUpper）
+## - 作为运行时对象与 Godot Resource 持久化之间的桥接层
 extends Resource
 class_name CodecResource
 
 ## 资源类型 ID（子类必须覆写）
 static func get_type_id() -> String:
 	return ""
-
-## 当前 Schema 版本（子类必须覆写）
-static func get_schema_version() -> int:
-	return 1
 
 ## 获取此资源类型的 Codec（子类必须覆写）
 ## 返回: Codec 或 MapCodec

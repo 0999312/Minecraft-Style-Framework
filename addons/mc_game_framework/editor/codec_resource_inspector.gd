@@ -1,7 +1,7 @@
 ## CodecResourceInspectorPlugin — CodecResource 自定义 Inspector
 ##
 ## 编辑器可视化支持：
-## - 为 CodecResource 展示字段树、默认值状态、Schema 版本
+## - 为 CodecResource 展示类型信息与 Codec 校验入口
 ## - 校验错误路径高亮
 ## - 保存前 Codec 校验
 extends EditorInspectorPlugin
@@ -15,11 +15,6 @@ func _parse_begin(object: Object) -> void:
 		return
 
 	var res := object as CodecResource
-
-	# Schema 版本信息
-	var version_label := Label.new()
-	version_label.text = "📋 Schema Version: v%d" % res.get_schema_version()
-	add_custom_control(version_label)
 
 	# 类型 ID
 	var type_label := Label.new()

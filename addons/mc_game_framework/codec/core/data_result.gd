@@ -1,6 +1,6 @@
 ## DataResult — DFU 风格结果对象
 ##
-## 对齐 Mojang DFU DataResult 设计：
+## 受 Mojang DFU DataResult 思路启发：
 ## - 支持 success / error / partial_success 三种状态
 ## - 携带 Diagnostic 路径与错误/警告信息
 ## - 支持 map / flat_map / apply 等函数式组合
