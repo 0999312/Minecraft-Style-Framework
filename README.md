@@ -6,11 +6,15 @@
 **Minecraft-Style-Framework** is a Godot game feature framework inspired by the underlying architectural design of Minecraft (such as data-driven patterns and decoupled systems). It is highly suitable for developing games that require a massive amount of items, event-driven interactions, and extreme extensibility (e.g., Sandbox games, RPGs).
 
 ## 2. Features
-* **ResourceLocation**: Namespace-based identifiers, working exactly like Minecraft's ID system (e.g., `namespace:path`).
+* **ResourceLocation**: Namespace-based identifiers, working exactly like Minecraft's ID system (e.g., `namespace:path`). Supports Mojang-style character validation (lowercase `a-z`, `0-9`, `_`, `-`, `.`, and `/` in path).
 * **Registry & RegistryManager**: A structured registry system designed for centralized management of game data and resources.
 * **EventBus**: A decoupled global event dispatching center. It supports event cancellation and can seamlessly bridge with Godot's native `Signal`.
 * **Tag System**: Easily group and classify game elements using tags (e.g., grouping all items that are "flammable") without modifying their internal code.
 * **I18n (Localization)**: A simple localization system that reads `.json` files to avoid hard-coded text.
+* **Codec System (DFU-style)**: A fully DFU-aligned combinatorial codec system for encoding/decoding data across JSON, Godot Resource (.tres/.res), Binary, and Network formats.
+* **Data Component System**: Minecraft-style data components that can be attached to any Node, Resource, or RefCounted object, with persistent/network sync policies.
+* **DataFixerUpper (DFU)**: Schema-versioned data migration framework with rewrite rules for field renaming, addition, removal, and value mapping.
+* **Editor Inspector Support**: Custom Inspector plugins for CodecResource validation and Component container visualization.
 
 ## 3. Installation
 1. **Get the Plugin**: Copy the entire `addons/mc_game_framework/` directory from this repository into your Godot project's `addons/` directory.
@@ -404,7 +408,188 @@ show_toast(achievement)        toasts:[achievement]     achievement (auto-dismis
 back()                         [main_menu]              main_menu ✅ (resumed)
 ```
 
-## 6. Important Notice
+## 6. Codec System (DFU-style)
+
+### Architecture
+The Codec system follows a 4-layer design aligned with Mojang's DataFixerUpper (DFU):
+
+| Layer | Responsibility | Key Classes |
+|-------|---------------|-------------|
+| **Type Layer** | Describes "what data is" | `Codec`, `MapCodec`, `DataResult` |
+| **Format Layer** | Describes "where data lives" | `DynamicOps`, `JsonOps`, `GodotResourceOps` |
+| **Migration Layer** | Describes "how to upgrade old data" | `Schema`, `DataFix`, `TypeRewriteRule`, `DataFixerUpper` |
+| **Editor Layer** | Visual editing & validation | `CodecResourceInspectorPlugin`, `ComponentInspectorPlugin` |
+
+### 6.1 DataResult (Error Handling)
+All Codec/DFU APIs return `DataResult` instead of raw values. This provides:
+- **Success / Error / Partial** states
+- **Diagnostic** messages with field path tracking
+- **Functional combinators**: `map()`, `flat_map()`, `apply()`
+- **Partial success**: e.g., 8 of 10 fields decoded, with diagnostics for the other 2
+
+```gdscript
+var result = codec.decode(data, JsonOps.INSTANCE)
+if result.is_success():
+    var value = result.get_value()
+elif result.is_partial():
+    var partial = result.get_value()       # Partial data with defaults
+    for d in result.get_diagnostics():     # Diagnostic messages
+        print(d)
+else:
+    print("Error: ", result.get_error())
+```
+
+### 6.2 Codec Combinators (DFU-style Declaration)
+
+```gdscript
+# Primitive codecs
+Codec.BOOL()    Codec.INT()    Codec.FLOAT()    Codec.STRING()
+
+# ResourceLocation codec
+Codec.RESOURCE_LOCATION()
+
+# Collection codecs
+Codec.INT().list_of()                       # Array[int]
+Codec.map_of(Codec.STRING(), Codec.INT())   # Dict[String, int]
+
+# Record codec (DFU RecordCodecBuilder pattern)
+var item_codec = Codec.record(
+    MapCodec.build(
+        [
+            Codec.STRING().field_of("name").for_getter(func(item): return item.name),
+            Codec.INT().field_of("damage").for_getter(func(item): return item.damage),
+            Codec.FLOAT().optional_field_of("weight", 1.0).for_getter(func(item): return item.weight),
+        ],
+        func(name, damage, weight):
+            return ItemData.new(name, damage, weight)
+    )
+)
+
+# Transform codecs
+codec.xmap(decode_fn, encode_fn)       # Synchronous transform
+codec.flat_xmap(decode_fn, encode_fn)  # Transform that may fail (returns DataResult)
+
+# Either (try first, fallback to second)
+Codec.either(Codec.INT(), Codec.STRING())
+
+# Dispatch (polymorphic codec by type field)
+Codec.dispatch("type", Codec.STRING(), func(type_name): return get_codec_for(type_name))
+```
+
+### 6.3 DynamicOps (Format Abstraction)
+Same codec definition works across all data formats:
+
+```gdscript
+var codec = item_codec()
+
+# Encode to JSON
+var json_result = codec.encode(item, JsonOps.INSTANCE)
+
+# Encode to Godot Resource format
+var res_result = codec.encode(item, GodotResourceOps.INSTANCE)
+```
+
+### 6.4 Godot Resource Persistence
+`CodecResource` extends `Resource` for Codec-driven `.tres/.res` persistence:
+
+```gdscript
+extends CodecResource
+class_name MyItemResource
+
+@export var item_name: String = ""
+@export var damage: int = 0
+
+static func get_type_id() -> String:
+    return "mymod:item"
+
+static func get_schema_version() -> int:
+    return 1
+
+static func get_codec() -> Codec:
+    return Codec.record(MapCodec.build([
+        Codec.STRING().field_of("item_name").for_getter(func(r): return r.item_name),
+        Codec.INT().field_of("damage").for_getter(func(r): return r.damage),
+    ], func(name, dmg): return MyItemResource.new()))
+
+# Save / Load
+func save():
+    save_to_file("res://data/my_item.tres")
+```
+
+### 6.5 DataFixerUpper (Version Migration)
+
+```gdscript
+var fixer = DataFixerUpper.new()
+
+# Define schemas
+fixer.add_schema(Schema.new(1))  # v1: {name, damage}
+fixer.add_schema(Schema.new(2))  # v2: {item_name, damage, weight}
+
+# Define migration rules
+var fix = DataFix.new(1, 2, "Rename name->item_name, add weight")
+fix.add_rule(TypeRewriteRule.RenameField.new("item", "name", "item_name"))
+fix.add_rule(TypeRewriteRule.AddField.new("item", "weight", 1.0))
+fixer.add_fix(fix)
+
+# Migrate old data
+var result = fixer.update(old_v1_data, 1, JsonOps.INSTANCE, "item")
+# Or migrate + decode in one step
+var obj = fixer.update_and_decode(old_data, 1, latest_codec, JsonOps.INSTANCE, "item")
+```
+
+Available rewrite rules: `RenameField`, `AddField`, `RemoveField`, `MapFieldValue`, `CustomRule`.
+
+## 7. Data Component System
+
+Data Components can be attached to **any Node, Resource, or RefCounted object**.
+
+### 7.1 Define Component Types
+
+```gdscript
+var HEALTH = ComponentType.Builder.new(
+    ResourceLocation.new("game", "health"),
+    Codec.INT()
+).with_default(func(): return 20).persistent(
+    ComponentType.PersistentPolicy.ALWAYS
+).build()
+```
+
+### 7.2 Attach Components to Objects
+
+```gdscript
+# Attach to any Node
+ComponentHost.set_component(node, HEALTH, 15)
+var hp = ComponentHost.get_component(node, HEALTH)  # 15
+
+# Attach to any Resource
+ComponentHost.set_component(resource, HEALTH, 100)
+
+# Serialize all components
+var container = ComponentHost.get_container(node)
+var json = container.encode(JsonOps.INSTANCE)
+```
+
+### 7.3 Persistence Policies
+- `NONE` — never serialized
+- `ALWAYS` — always serialized
+- `NON_DEFAULT` — only serialized when value differs from default (default-value pruning)
+
+## 8. ResourceLocation Validation Rules
+Following Mojang's original design:
+- **Namespace**: lowercase `a-z`, digits `0-9`, `_`, `-`, `.`
+- **Path**: lowercase `a-z`, digits `0-9`, `_`, `-`, `.`, `/`
+- Path hierarchy semantics are developer-defined; the framework only validates character legality.
+
+```gdscript
+# Strict validation (returns DataResult)
+var result = ResourceLocation.parse("minecraft:items/diamond_sword")  # ✅
+var bad = ResourceLocation.parse("Minecraft:ITEMS")                   # ❌ uppercase
+
+# Boolean check
+ResourceLocation.is_valid("demo:block.stone")  # true
+```
+
+## 9. Important Notice
 Since this plugin is a brand-new project and the demo game is still under development, please feel free to submit feedback if you encounter any issues while using it. Pull Requests are highly welcome!
 
 ---
@@ -415,11 +600,15 @@ Since this plugin is a brand-new project and the demo game is still under develo
 这是一个旨在将 Minecraft 优秀的底层设计理念（如数据驱动、解耦体系）引入 Godot 引擎的游戏功能框架。适合用来开发拥有大量物品、事件驱动及需要极强扩展性的游戏（例如沙盒、RPG等）。
 
 ## 2. 功能列表
-* **ResourceLocation**：基于命名空间和路径的同名标识符（类似 `minecraft:stone`）。
+* **ResourceLocation**：基于命名空间和路径的同名标识符（类似 `minecraft:stone`）。支持 Mojang 原版合法字符校验（小写字母 `a-z`、数字 `0-9`、`_`、`-`、`.`，path 中可用 `/`）。
 * **基于 ResourceLocation 的注册表与总注册表**：用于集中管理游戏内的数据与资源。
 * **事件总线 (EventBus)**：解耦的事件广播与监听系统，支持阻止事件传递，并支持与 Godot 原生 `Signal` 无缝联动。
 * **标签系统 (Tag)**：用于为游戏元素打标签，方便进行分类检索（例如：所有“可燃物”物品），无需修改物品本身的数据。
 * **I18n 系统**：读取外部 JSON 文件的本地化系统，避免硬编码游戏文本。
+* **Codec 系统（DFU 风格）**：完全对齐 Mojang DFU 的组合式编解码系统，支持 JSON / Godot Resource (.tres/.res) / Binary / Network 四种载体格式。
+* **Data Component 系统**：Minecraft 风格数据组件，可挂载到任意 Node / Resource / RefCounted 对象，支持持久化/网络同步策略。
+* **DataFixerUpper (DFU)**：Schema 版本化数据迁移框架，支持字段改名、添加、移除、值映射等迁移规则。
+* **编辑器可视化支持**：CodecResource 自定义 Inspector 校验和 Component 容器可视编辑器。
 
 ## 3. 安装与配置
 1. **获取插件**：将本项目 `addons/mc_game_framework/` 目录完整拷贝到你的 Godot 项目的 `addons/` 目录下。
@@ -806,5 +995,182 @@ show_toast(achievement)        toasts:[achievement]      achievement（3秒后�
 back()                         [main_menu]               main_menu ✅（恢复）
 ```
 
-## 6. 注意事项
+## 6. Codec 系统（DFU 风格）
+
+### 架构
+Codec 系统采用四层设计，完全对齐 Mojang DataFixerUpper (DFU)：
+
+| 层级 | 职责 | 核心类 |
+|------|------|--------|
+| **类型层** | 描述"数据是什么" | `Codec`, `MapCodec`, `DataResult` |
+| **格式层** | 描述"数据存在哪种载体里" | `DynamicOps`, `JsonOps`, `GodotResourceOps` |
+| **迁移层** | 描述"旧版本如何转成新版本" | `Schema`, `DataFix`, `TypeRewriteRule`, `DataFixerUpper` |
+| **编辑器层** | 可视化编辑与校验 | `CodecResourceInspectorPlugin`, `ComponentInspectorPlugin` |
+
+### 6.1 DataResult（错误处理）
+所有 Codec/DFU API 均返回 `DataResult` 而非裸值：
+- **Success / Error / Partial** 三种状态
+- **Diagnostic** 诊断信息附带字段路径追踪
+- **函数式组合器**：`map()`, `flat_map()`, `apply()`
+- **部分成功**：例如对象 10 个字段中 8 个合法，保留部分结果并附带诊断
+
+```gdscript
+var result = codec.decode(data, JsonOps.INSTANCE)
+if result.is_success():
+    var value = result.get_value()
+elif result.is_partial():
+    var partial = result.get_value()       # 部分数据（使用默认值）
+    for d in result.get_diagnostics():     # 诊断信息
+        print(d)
+else:
+    print("错误: ", result.get_error())
+```
+
+### 6.2 Codec 组合器（DFU 风格声明）
+
+```gdscript
+# 基本类型 Codec
+Codec.BOOL()    Codec.INT()    Codec.FLOAT()    Codec.STRING()
+
+# ResourceLocation Codec
+Codec.RESOURCE_LOCATION()
+
+# 集合 Codec
+Codec.INT().list_of()                       # Array[int]
+Codec.map_of(Codec.STRING(), Codec.INT())   # Dict[String, int]
+
+# Record Codec（DFU RecordCodecBuilder 风格）
+var item_codec = Codec.record(
+    MapCodec.build(
+        [
+            Codec.STRING().field_of("name").for_getter(func(item): return item.name),
+            Codec.INT().field_of("damage").for_getter(func(item): return item.damage),
+            Codec.FLOAT().optional_field_of("weight", 1.0).for_getter(func(item): return item.weight),
+        ],
+        func(name, damage, weight):
+            return ItemData.new(name, damage, weight)
+    )
+)
+
+# 变换 Codec
+codec.xmap(decode_fn, encode_fn)       # 同步变换
+codec.flat_xmap(decode_fn, encode_fn)  # 可失败变换（返回 DataResult）
+
+# Either（优先尝试 first，失败则尝试 second）
+Codec.either(Codec.INT(), Codec.STRING())
+
+# Dispatch（根据类型字段分发到不同子 Codec）
+Codec.dispatch("type", Codec.STRING(), func(type_name): return get_codec_for(type_name))
+```
+
+### 6.3 DynamicOps（格式抽象）
+同一个 Codec 定义可用于所有数据格式：
+
+```gdscript
+var codec = item_codec()
+
+# 编码为 JSON
+var json_result = codec.encode(item, JsonOps.INSTANCE)
+
+# 编码为 Godot Resource 格式
+var res_result = codec.encode(item, GodotResourceOps.INSTANCE)
+```
+
+### 6.4 Godot Resource 落盘
+`CodecResource` 继承 `Resource`，实现 Codec 驱动的 `.tres/.res` 持久化：
+
+```gdscript
+extends CodecResource
+class_name MyItemResource
+
+@export var item_name: String = ""
+@export var damage: int = 0
+
+static func get_type_id() -> String:
+    return "mymod:item"
+
+static func get_schema_version() -> int:
+    return 1
+
+static func get_codec() -> Codec:
+    return Codec.record(MapCodec.build([
+        Codec.STRING().field_of("item_name").for_getter(func(r): return r.item_name),
+        Codec.INT().field_of("damage").for_getter(func(r): return r.damage),
+    ], func(name, dmg): return MyItemResource.new()))
+```
+
+### 6.5 DataFixerUpper（版本迁移）
+
+```gdscript
+var fixer = DataFixerUpper.new()
+
+# 定义 Schema
+fixer.add_schema(Schema.new(1))  # v1: {name, damage}
+fixer.add_schema(Schema.new(2))  # v2: {item_name, damage, weight}
+
+# 定义迁移规则
+var fix = DataFix.new(1, 2, "重命名 name->item_name，添加 weight")
+fix.add_rule(TypeRewriteRule.RenameField.new("item", "name", "item_name"))
+fix.add_rule(TypeRewriteRule.AddField.new("item", "weight", 1.0))
+fixer.add_fix(fix)
+
+# 迁移旧数据
+var result = fixer.update(old_v1_data, 1, JsonOps.INSTANCE, "item")
+# 迁移 + 解码一步完成
+var obj = fixer.update_and_decode(old_data, 1, latest_codec, JsonOps.INSTANCE, "item")
+```
+
+可用迁移规则：`RenameField`、`AddField`、`RemoveField`、`MapFieldValue`、`CustomRule`。
+
+## 7. Data Component 系统
+
+Data Component 可挂载到**任意 Node / Resource / RefCounted 对象**。
+
+### 7.1 定义组件类型
+
+```gdscript
+var HEALTH = ComponentType.Builder.new(
+    ResourceLocation.new("game", "health"),
+    Codec.INT()
+).with_default(func(): return 20).persistent(
+    ComponentType.PersistentPolicy.ALWAYS
+).build()
+```
+
+### 7.2 挂载组件到对象
+
+```gdscript
+# 挂载到任意 Node
+ComponentHost.set_component(node, HEALTH, 15)
+var hp = ComponentHost.get_component(node, HEALTH)  # 15
+
+# 挂载到任意 Resource
+ComponentHost.set_component(resource, HEALTH, 100)
+
+# 序列化所有组件
+var container = ComponentHost.get_container(node)
+var json = container.encode(JsonOps.INSTANCE)
+```
+
+### 7.3 持久化策略
+- `NONE` — 不持久化
+- `ALWAYS` — 始终持久化
+- `NON_DEFAULT` — 仅非默认值时持久化（默认值裁剪）
+
+## 8. ResourceLocation 校验规则
+参考 Mojang 原版设计：
+- **namespace**：小写字母 `a-z`、数字 `0-9`、`_`、`-`、`.`
+- **path**：小写字母 `a-z`、数字 `0-9`、`_`、`-`、`.`、`/`
+- 路径层级含义由开发者自行约定，框架只做格式合法性校验。
+
+```gdscript
+# 严格校验（返回 DataResult）
+var result = ResourceLocation.parse("minecraft:items/diamond_sword")  # ✅
+var bad = ResourceLocation.parse("Minecraft:ITEMS")                   # ❌ 大写字母
+
+# 布尔判断
+ResourceLocation.is_valid("demo:block.stone")  # true
+```
+
+## 9. 注意事项
 由于本插件是全新的项目、示例游戏仍在开发当中，所以在插件使用期间遇到任何问题请及时提交反馈，欢迎提供 Pull Request。
