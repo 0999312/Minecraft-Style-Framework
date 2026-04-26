@@ -39,15 +39,18 @@ static func item_data_codec() -> Codec:
 				Codec.FLOAT().optional_field_of("weight", 1.0).for_getter(func(item: ItemData): return item.weight),
 				Codec.BOOL().optional_field_of("enchantable", false).for_getter(func(item: ItemData): return item.enchantable),
 			],
-			func(name: String, damage: int, weight: float, enchantable: bool) -> ItemData:
-				return ItemData.new(name, damage, weight, enchantable)
+			func(name: String, damage: int, weight: float, enchantable: bool) -> ItemData: return ItemData.new(name, damage, weight, enchantable)
 		)
 	)
 
 class DemoItemResource extends CodecResource:
 	var item_name: String = ""
 	var damage: int = 0
-
+	
+	func _init(item_name: String = "", damage: int = 0) -> void:
+		item_name = item_name
+		damage = damage
+	
 	static func get_type_id() -> String:
 		return "demo:item_resource"
 
@@ -58,11 +61,7 @@ class DemoItemResource extends CodecResource:
 					Codec.STRING().field_of("item_name").for_getter(func(item: DemoItemResource): return item.item_name),
 					Codec.INT().field_of("damage").for_getter(func(item: DemoItemResource): return item.damage),
 				],
-				func(item_name: String, damage: int) -> DemoItemResource:
-					var resource := DemoItemResource.new()
-					resource.item_name = item_name
-					resource.damage = damage
-					return resource
+				func(item_name: String, damage: int) -> DemoItemResource: return DemoItemResource.new(item_name, damage)
 			)
 		)
 

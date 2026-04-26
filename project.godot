@@ -24,7 +24,7 @@ config/icon="res://icon.svg"
 RegistryManager="*uid://djenx0rf18ew7"
 EventBus="*uid://dqjaimeyl43vd"
 I18NManager="*uid://wj05s0mpoqn"
-UIManager="*res://addons/mc_game_framework/autoload/ui_manager.gd"
+UIManager="*uid://b0mn85k3pon1l"
 
 [editor_plugins]
 
