@@ -1,427 +1,564 @@
-# Minecraft-Style-Framework 技术文档
+# Minecraft-Style-Framework 技术文档（Unity C#）
 
-这是本项目的中文技术文档，内容对应英文主文档 [`technical-guide.md`](./technical-guide.md)，包含 API 介绍、架构说明、使用示例与实现约束。
+本文档为 Unity C# 版本的中文技术文档，包含 API 介绍、架构说明、使用示例与实现细节。
+
+英文版请参阅 [`technical-guide.md`](./technical-guide.md)。
+
+---
 
 ## 1. 简介
 
-**Minecraft-Style-Framework** 是一个面向 Godot 的游戏功能框架，受 Minecraft 底层设计思路启发，强调数据驱动、系统解耦与高扩展性。适合物品较多、事件交互复杂、模块边界清晰要求较高的项目。
+**Minecraft-Style-Framework** 是一个面向 Unity 的游戏功能框架，受 Minecraft 底层设计思路启发，强调数据驱动、系统解耦与高扩展性。适合物品较多、事件交互复杂、模块边界清晰要求较高的项目。
+
+**目标平台：** Unity 2022 LTS | C# 9.0（.NET Standard 2.1）
+
+**外部依赖：** Newtonsoft.Json（Json.NET）
+
+---
 
 ## 2. 功能列表
 
-- **ResourceLocation**：`namespace:path` 风格标识符，支持 Mojang 风格合法性校验。
-- **Registry 与 RegistryManager**：集中管理游戏数据的注册表体系。
-- **EventBus**：支持取消事件和 Godot `Signal` 联动的全局事件总线。
-- **Tag 系统**：无需修改对象本身即可动态分类注册表项。
-- **I18n**：基于 JSON 的本地化系统。
-- **Codec 系统**：面向 JSON / Godot Resource 的 DFU 风格声明式编解码。
-- **Data Component 系统**：可挂载到任意对象的数据组件，支持持久化策略与网络同步提示标签。
-- **UI 框架**：与 Registry / EventBus 深度集成的栈式 UI 体系。
-- **编辑器 Inspector 支持**：用于 CodecResource 与组件容器的可视化检查。
+| 模块 | 说明 |
+|------|------|
+| **ResourceLocation** | `namespace:path` 风格标识符，Mojang 风格合法性校验 |
+| **RegistryBase / RegistryManager** | 泛型类型安全的集中注册表体系 |
+| **EventBus** | 全局事件总线，支持取消事件 |
+| **Tag 系统** | 无需修改对象即可动态分类注册表项 |
+| **I18N** | 基于 JSON 的本地化系统，支持嵌套键 |
+| **Codec 系统** | DFU 风格声明式编解码，支持 JsonOps / UnityResourceOps |
+| **Data Component 系统** | 可挂载到任意对象的数据组件，含持久化策略与网络同步标签 |
+| **UI 框架** | 栈式 UI，含面板栈、覆盖层、Toast 通知、弹窗队列 |
+
+---
 
 ## 3. 安装
 
-1. 将 `addons/mc_game_framework/` 拷贝到目标 Godot 项目的 `addons/` 目录。
-2. 在 **项目 -> 项目设置 -> 插件** 中启用 `Minecraft-Style-Framework`。
-3. 启用后会自动注册四个 Autoload：
-   - `RegistryManager`
-   - `EventBus`
-   - `I18NManager`
-   - `UIManager`
+1. 将 `Assets/Plugins/MinecraftStyleFramework/` 目录拷贝到你的 Unity 项目的 `Assets/` 下。
+2. 通过 Unity Package Manager 安装 **Newtonsoft.Json**：
+   - Window → Package Manager → 按名称添加：`com.unity.nuget.newtonsoft-json`
+3. 在代码中访问框架单例：
+   - `RegistryManager.Instance`
+   - `EventBus.Instance`
+   - `I18NManager.Instance`
+   - `UIManager.Instance`（需在场景中挂载 `UIManager` 组件到持久 GameObject 上）
+
+### UIManager 配置
+
+在首个场景中创建空 GameObject，挂载 `UIManager` 组件。它会通过 `DontDestroyOnLoad` 自动注册为单例。
+
+---
 
 ## 4. 核心模块与用法
 
 ### 4.1 ResourceLocation
 
-`ResourceLocation` 是框架内的统一标识符。
+`ResourceLocation` 是框架内的统一标识符，格式为 `namespace:path`。
 
-```gdscript
-var sword_id = ResourceLocation.from_string("my_mod:iron_sword")
-var arrow_id = ResourceLocation.new("my_mod", "arrow")
+```csharp
+using MinecraftStyleFramework.Utils;
+
+// 直接构造
+var swordId = new ResourceLocation("my_mod", "iron_sword");
+
+// 从字符串解析（宽松模式，失败返回 null）
+var arrowId = ResourceLocation.FromString("my_mod:arrow");
+
+// 严格解析（返回 DataResult，含校验错误信息）
+var result = ResourceLocation.Parse("my_mod:items/diamond_sword");
+if (result.IsSuccess)
+{
+    ResourceLocation id = result.Value;
+}
+
+// 合法性检查
+bool valid = ResourceLocation.IsValid("demo:block.stone"); // true
+bool invalid = ResourceLocation.IsValid("Demo:ITEMS");     // false
 ```
+
+**校验规则：**
+- **Namespace：** 小写字母 `a-z`、数字 `0-9`、`_`、`-`、`.`
+- **Path：** 小写字母 `a-z`、数字 `0-9`、`_`、`-`、`.`、`/`
+
+**设计要点：** 实现了 `IEquatable<ResourceLocation>` 并重写 `GetHashCode()`，可直接用作 Dictionary 键。
+
+---
 
 ### 4.2 注册表系统
 
-通过继承 `RegistryBase` 创建自定义注册表。
+使用 `RegistryBase<T>` 创建类型安全的注册表，或使用 `RegistryBase`（非泛型）存储异构条目。
 
-```gdscript
-extends RegistryBase
-class_name ItemRegistry
+```csharp
+using MinecraftStyleFramework.Registry;
+using MinecraftStyleFramework.Utils;
+using UnityEngine;
 
-func register_item(id: ResourceLocation, item_resource: Resource) -> void:
-    register(id, item_resource)
+// 定义类型注册表
+public class ItemRegistry : RegistryBase<ScriptableObject>
+{
+    protected override string GetExpectedTypeName() => "ItemData";
+}
 
-func _get_expected_type_name() -> String:
-    return "ItemInfo"
+// 注册一个注册表实例
+var itemRegistry = new ItemRegistry();
+RegistryManager.Instance.RegisterRegistry("item", itemRegistry);
 
-var registry = ItemRegistry.new()
-var item_id = ResourceLocation.from_string("demo:sword")
-registry.register_item(item_id, preload("res://demo/sword.tscn"))
-var my_sword_node = registry.instantiate_item(item_id)
+// 注册条目
+var swordId = new ResourceLocation("demo", "sword");
+itemRegistry.Register(swordId, swordAsset);
+
+// 获取条目
+var item = itemRegistry.GetEntry(swordId);
+bool exists = itemRegistry.HasEntry(swordId);
 ```
+
+---
 
 ### 4.3 EventBus
 
-事件基于抽象类 `Event`。
+事件继承抽象类 `Event`，EventBus 支持事件取消。
 
-```gdscript
-extends Event
-class_name ItemUsedEvent
+```csharp
+using MinecraftStyleFramework.Events;
+using MinecraftStyleFramework.Utils;
 
-var user: Node
-var item_id: ResourceLocation
+// 定义自定义事件
+public class ItemUsedEvent : Event
+{
+    public GameObject User { get; }
+    public ResourceLocation ItemId { get; }
 
-func _init(p_user: Node, p_item_id: ResourceLocation):
-    user = p_user
-    item_id = p_item_id
+    public ItemUsedEvent(GameObject user, ResourceLocation itemId)
+    {
+        User = user;
+        ItemId = itemId;
+    }
+}
 
-func _ready():
-    EventBus.subscribe("ItemUsedEvent", _on_item_used)
+// 订阅
+EventBus.Instance.Subscribe<ItemUsedEvent>(evt =>
+{
+    var e = evt as ItemUsedEvent;
+    Debug.Log($"物品使用: {e.ItemId}");
+});
 
-func _on_item_used(event: Event):
-    var e = event as ItemUsedEvent
-    if e:
-        print("Item used: ", e.item_id.to_string())
+// 发布
+var usedEvent = new ItemUsedEvent(player, swordId);
+EventBus.Instance.Publish(usedEvent);
 
-func use_item(item: ResourceLocation):
-    var event = ItemUsedEvent.new(self, item)
-    EventBus.publish(event)
-
-EventBus.bind_signal($MyButton.pressed, func(): return ButtonPressedEvent.new())
+// 取消事件（阻止后续监听器处理）
+EventBus.Instance.Subscribe<ItemUsedEvent>(evt =>
+{
+    evt.Cancel(); // 后续监听器不会收到此事件
+});
 ```
+
+---
 
 ### 4.4 Tag 系统
 
-```gdscript
-var weapon_tag = Tag.new(ResourceLocation.from_string("registry:item"))
+Tag 允许无侵入式地对注册表条目进行动态分类。
 
-weapon_tag.add_entry(ResourceLocation.from_string("demo:sword"))
-weapon_tag.add_entry(ResourceLocation.from_string("demo:bow"))
+```csharp
+using MinecraftStyleFramework.Tags;
+using MinecraftStyleFramework.Utils;
 
-if weapon_tag.has_entry(current_item_id):
-    print("这是一个武器！")
-```
+// 创建一个面向特定注册表的 Tag
+var weaponTag = new Tag(ResourceLocation.FromString("registry:item"));
 
-## 5. 栈式 UI 框架
+// 添加条目
+weaponTag.AddEntry(ResourceLocation.FromString("demo:sword"));
+weaponTag.AddEntry(ResourceLocation.FromString("demo:bow"));
 
-UI 系统由 `UIManager`、`UIRegistry`、`EventBus` 与 `ResourceLocation` 构成。
-
-### 5.1 架构概览
-
-```text
-┌───────────────────────────────────────────────────────────┐
-│                    UIManager（Autoload）                  │
-│                     栈式 UI 管理器                        │
-├───────────────────────────────────────────────────────────┤
-│  面板栈（按层级）│ 覆盖层管理 │ Toast 管理 │ 弹窗队列      │
-├───────────────────────────────────────────────────────────┤
-│   UIRegistry（继承 RegistryBase，通过 RegistryManager 注册）│
-│   EventBus 集成   │  ResourceLocation 标识符             │
-└───────────────────────────────────────────────────────────┘
-```
-
-### 5.2 文件结构
-
-```text
-addons/mc_game_framework/
-├── autoload/
-│   └── ui_manager.gd
-├── registry/
-│   └── ui_registry.gd
-├── ui/
-│   ├── ui_layer.gd
-│   ├── ui_panel.gd
-│   └── ui_toast.gd
-├── event/ui/
-│   ├── ui_open_event.gd
-│   ├── ui_close_event.gd
-│   ├── ui_pause_event.gd
-│   └── ui_resume_event.gd
-└── mc_game_framework.gd
-```
-
-### 5.3 UILayer
-
-```gdscript
-extends RefCounted
-class_name UILayer
-
-const SCENE  := 0
-const NORMAL := 100
-const POPUP  := 200
-const TOAST  := 300
-const SYSTEM := 400
-
-static func get_all_layers() -> Array[int]:
-    return [SCENE, NORMAL, POPUP, TOAST, SYSTEM]
-```
-
-### 5.4 UIPanel
-
-```gdscript
-extends Control
-class_name UIPanel
-
-var panel_id: ResourceLocation
-var ui_layer: int = UILayer.NORMAL
-var cache_mode: int = CacheMode.NONE
-
-enum CacheMode {
-    NONE,
-    CACHE,
+// 查询
+if (weaponTag.HasEntry(currentItemId))
+{
+    Debug.Log("这是一个武器！");
 }
 
-func _on_init() -> void: pass
-func _on_open(data: Dictionary = {}) -> void: pass
-func _on_pause() -> void: pass
-func _on_resume() -> void: pass
-func _on_close() -> void: pass
-func _on_destroy() -> void: pass
+// 获取所有条目
+var entries = weaponTag.GetEntries();
 ```
 
-### 5.5 UIRegistry
+---
 
-```gdscript
-extends RegistryBase
-class_name UIRegistry
+### 4.5 I18N 系统
 
-func register_panel(id: ResourceLocation, scene: PackedScene,
-                     default_layer: int = UILayer.NORMAL,
-                     cache_mode: int = UIPanel.CacheMode.NONE) -> void:
-    register(id, {"scene": scene, "default_layer": default_layer,
-                   "cache_mode": cache_mode})
+基于 JSON 的本地化，支持嵌套键和占位符替换。
+
+```csharp
+using MinecraftStyleFramework.I18N;
+
+// 从 JSON 字符串加载翻译
+string zhJson = @"{
+    ""ui"": {
+        ""title"": ""我的游戏"",
+        ""greeting"": ""你好，{0}！""
+    },
+    ""item"": {
+        ""sword"": ""铁剑""
+    }
+}";
+I18NManager.Instance.LoadTranslation("zh", zhJson);
+
+// 切换语言（会发布 LanguageChangedEvent）
+I18NManager.Instance.SetLanguage("zh");
+
+// 获取文本（键用点号分隔）
+string title = I18NManager.Instance.GetText("ui.title");           // "我的游戏"
+string greet = I18NManager.Instance.GetText("ui.greeting", "玩家"); // "你好，玩家！"
 ```
 
-注册方式：
+---
 
-```gdscript
-RegistryManager.register_registry("ui", UIRegistry.new())
-```
+## 5. Codec 系统
 
-### 5.6 UIManager 核心 API
-
-```gdscript
-func open_panel(id: ResourceLocation, data: Dictionary = {},
-                layer_override: int = -1) -> UIPanel
-func back(layer: int = UILayer.NORMAL) -> void
-func close_panel(id: ResourceLocation) -> void
-func close_all(layer: int = -1) -> void
-func get_top_panel(layer: int = UILayer.NORMAL) -> UIPanel
-func is_panel_open(id: ResourceLocation) -> bool
-
-func add_overlay(id: ResourceLocation, overlay: Control,
-                 layer: int = UILayer.SCENE) -> void
-func remove_overlay(id: ResourceLocation) -> void
-func get_overlay(id: ResourceLocation) -> Control
-func set_overlay_visible(id: ResourceLocation, visible: bool) -> void
-
-func show_toast(toast_id: ResourceLocation, data: Dictionary = {},
-                duration: float = 3.0) -> UIToast
-func dismiss_toast(toast: UIToast) -> void
-func dismiss_all_toasts() -> void
-
-func queue_popup(panel_id: ResourceLocation, data: Dictionary = {},
-                 priority: int = 0) -> void
-```
-
-### 5.7 安全与性能说明
-
-- 同面板重复打开会被拦截。
-- 递归打开保护使用 `MAX_OPEN_DEPTH := 8`。
-- `_active_panel_ids` 提供 O(1) 活跃面板查询。
-- 缓存面板使用 `MAX_CACHED_PANELS := 10` 与 LRU 淘汰策略。
-
-### 5.8 使用示例
-
-```gdscript
-var ui_reg: UIRegistry = RegistryManager.get_registry("ui")
-
-ui_reg.register_panel(
-    ResourceLocation.from_string("game:inventory"),
-    preload("res://scenes/ui/inventory.tscn"),
-    UILayer.NORMAL, UIPanel.CacheMode.CACHE
-)
-
-UIManager.open_panel(
-    ResourceLocation.from_string("game:inventory"),
-    {"selected_tab": "weapons"}
-)
-
-UIManager.queue_popup(ResourceLocation.from_string("game:daily_reward"), {}, 10)
-UIManager.show_toast(ResourceLocation.from_string("game:item_toast"),
-                     {"item": "Iron Sword", "count": 1}, 3.0)
-```
-
-## 6. Codec 系统
-
-### 6.1 架构
+### 5.1 架构
 
 | 层级 | 职责 | 核心类 |
 |------|------|--------|
-| **结果层** | 承载解码结果、诊断与部分成功状态 | `DataResult` |
-| **声明层** | 描述编码与解码规则 | `Codec`, `MapCodec` |
-| **载体层** | 适配不同存储格式 | `DynamicOps`, `JsonOps`, `GodotResourceOps` |
+| **结果层** | 承载解码结果、诊断与部分成功状态 | `DataResult<T>` |
+| **声明层** | 描述编码与解码规则 | `Codec<T>`、`MapCodec<T>` |
+| **载体层** | 适配不同存储格式 | `DynamicOps`、`JsonOps`、`UnityResourceOps` |
 
-### 6.2 DataResult
+### 5.2 DataResult
 
-```gdscript
-var result = codec.decode(data, JsonOps.INSTANCE)
-if result.is_success():
-    var value = result.get_value()
-elif result.is_partial():
-    var partial = result.get_value()
-    for d in result.get_diagnostics():
-        print(d)
-else:
-    print("错误: ", result.get_error())
+```csharp
+using MinecraftStyleFramework.Codec;
+
+var result = codec.Decode(data, JsonOps.Instance);
+if (result.IsSuccess)
+{
+    var value = result.Value;
+}
+else if (result.IsPartial)
+{
+    var partial = result.Value;
+    foreach (var d in result.Diagnostics)
+        Debug.Log(d);
+}
+else
+{
+    Debug.LogError($"错误: {result.ErrorMessage}");
+}
 ```
 
-### 6.3 Codec 组合器
+### 5.3 基础类型 Codec
 
-```gdscript
-Codec.BOOL()
-Codec.INT()
-Codec.FLOAT()
-Codec.STRING()
-Codec.RESOURCE_LOCATION()
+```csharp
+Codec.Bool              // Codec<bool>
+Codec.Int               // Codec<int>
+Codec.Float             // Codec<float>
+Codec.String            // Codec<string>
+Codec.ResourceLocation  // Codec<ResourceLocation>
+```
 
-Codec.INT().list_of()
-Codec.map_of(Codec.STRING(), Codec.INT())
+### 5.4 Codec 组合器
 
-var item_codec = Codec.record(
-    MapCodec.build(
-        [
-            Codec.STRING().field_of("name").for_getter(func(item): return item.name),
-            Codec.INT().field_of("damage").for_getter(func(item): return item.damage),
-            Codec.FLOAT().optional_field_of("weight", 1.0).for_getter(func(item): return item.weight),
-        ],
-        func(name, damage, weight):
-            return ItemData.new(name, damage, weight)
-    )
+```csharp
+// 列表
+Codec<List<int>> intList = Codec.Int.ListOf();
+
+// 键值对 Map
+Codec<Dictionary<string, int>> map = Codec.MapOf(Codec.String, Codec.Int);
+
+// Record（结构化对象）
+var itemCodec = Codec.Record(MapCodec.Build<ItemData>(
+    new IMapCodecField<ItemData>[]
+    {
+        Codec.String.FieldOf("name").ForGetter<ItemData>(item => item.Name),
+        Codec.Int.FieldOf("damage").ForGetter<ItemData>(item => item.Damage),
+        Codec.Float.OptionalFieldOf("weight", () => 1.0f).ForGetter<ItemData>(item => item.Weight),
+    },
+    args => new ItemData((string)args[0], (int)args[1], (float)args[2])
+));
+
+// Xmap（类型变换）
+Codec<MyEnum> enumCodec = Codec.String.Xmap(
+    str => Enum.Parse<MyEnum>(str),
+    val => val.ToString()
+);
+
+// FlatXmap（可能失败的变换）
+Codec<int> positiveInt = Codec.Int.FlatXmap<int>(
+    v => v > 0 ? DataResult<int>.Success(v) : DataResult<int>.Error("必须为正数"),
+    v => DataResult<int>.Success(v)
+);
+```
+
+### 5.5 DynamicOps
+
+同一份 Codec 定义可用于不同存储格式：
+
+```csharp
+using MinecraftStyleFramework.Codec.Ops;
+
+// 编码为 JSON
+var jsonResult = itemCodec.Encode(myItem, JsonOps.Instance);
+
+// 编码为 Dictionary（用于 Unity 序列化）
+var dictResult = itemCodec.Encode(myItem, UnityResourceOps.Instance);
+
+// 从 JSON 解码
+var decoded = itemCodec.Decode(jsonData, JsonOps.Instance);
+```
+
+---
+
+## 6. Data Component 系统
+
+Data Component 可挂载到任意对象（GameObject、普通 C# 对象、ScriptableObject）。
+
+### 6.1 定义组件类型
+
+```csharp
+using MinecraftStyleFramework.Components;
+using MinecraftStyleFramework.Codec;
+using MinecraftStyleFramework.Utils;
+
+// 将 Codec.Int 包装为 Codec<object>
+var healthCodec = Codec.Int.Xmap<object>(v => (object)v, o => (int)o);
+
+var HEALTH = new ComponentType.Builder(
+    new ResourceLocation("game", "health"),
+    healthCodec
 )
-
-codec.xmap(decode_fn, encode_fn)
-codec.flat_xmap(decode_fn, encode_fn)
-Codec.either(Codec.INT(), Codec.STRING())
-Codec.dispatch("type", Codec.STRING(), func(type_name): return get_codec_for(type_name))
+.WithDefault(() => 20)
+.Persistent(PersistentPolicy.Always)
+.WithNetworkSync(NetworkSyncTag.Full)
+.Build();
 ```
 
-### 6.4 DynamicOps
+### 6.2 注册组件类型
 
-```gdscript
-var codec = item_codec()
-var json_result = codec.encode(item, JsonOps.INSTANCE)
-var res_result = codec.encode(item, GodotResourceOps.INSTANCE)
+```csharp
+using MinecraftStyleFramework.Registry;
+
+// 注册 ComponentTypeRegistry
+if (!RegistryManager.Instance.HasRegistry(ComponentTypeRegistry.RegistryKey))
+{
+    RegistryManager.Instance.RegisterRegistry(
+        ComponentTypeRegistry.RegistryKey,
+        new ComponentTypeRegistry()
+    );
+}
+
+var reg = RegistryManager.Instance.GetRegistry<ComponentTypeRegistry>(ComponentTypeRegistry.RegistryKey);
+reg.RegisterComponentType(HEALTH);
 ```
 
-### 6.5 CodecResource
+### 6.3 挂载组件到对象
 
-```gdscript
-extends CodecResource
-class_name MyItemResource
+```csharp
+using MinecraftStyleFramework.Components;
 
-@export var item_name: String = ""
-@export var damage: int = 0
+// 设置组件值
+ComponentHost.SetComponent(gameObject, HEALTH, 15);
 
-static func get_type_id() -> String:
-    return "mymod:item"
+// 获取组件值
+int hp = ComponentHost.GetComponent<int>(gameObject, HEALTH); // 15
 
-static func get_codec() -> Codec:
-    return Codec.record(MapCodec.build([
-        Codec.STRING().field_of("item_name").for_getter(func(r): return r.item_name),
-        Codec.INT().field_of("damage").for_getter(func(r): return r.damage),
-    ], func(name, dmg): return MyItemResource.new()))
+// 检查是否存在
+bool has = ComponentHost.HasComponent(gameObject, HEALTH); // true
+
+// 编码所有组件
+var container = ComponentHost.GetContainer(gameObject);
+var json = container.Encode(JsonOps.Instance);
 ```
 
-## 7. Data Component 系统
+### 6.4 解码组件
 
-Data Component 可挂载到任意 `Node`、`Resource` 或 `RefCounted` 对象。
-
-### 7.1 定义组件类型
-
-```gdscript
-var HEALTH = ComponentType.Builder.new(
-    ResourceLocation.new("game", "health"),
-    Codec.INT()
-).with_default(func(): return 20).persistent(
-    ComponentType.PersistentPolicy.ALWAYS
-).build()
+```csharp
+var newContainer = new ComponentContainer();
+var result = newContainer.Decode(json.Value, JsonOps.Instance, reg);
 ```
 
-### 7.2 通过 RegistryManager 注册组件类型
+### 6.5 持久化策略
 
-Data Component 类型必须接入现有注册表体系，其注册表是普通 `RegistryBase` 子类，而不是 Autoload。
+| 策略 | 行为 |
+|------|------|
+| `None` | 永不持久化 |
+| `Always` | 始终包含在编码输出中 |
+| `NonDefault` | 仅当值与默认值不同时才持久化 |
 
-```gdscript
-if not RegistryManager.has_registry(ComponentTypeRegistry.REGISTRY_KEY):
-    RegistryManager.register_registry(
-        ComponentTypeRegistry.REGISTRY_KEY,
-        ComponentTypeRegistry.new()
-    )
+### 6.6 网络同步标签
 
-var component_reg: ComponentTypeRegistry = RegistryManager.get_registry(
-    ComponentTypeRegistry.REGISTRY_KEY
-)
-component_reg.register_component_type(HEALTH)
+| 标签 | 含义 |
+|------|------|
+| `None` | 无同步提示 |
+| `Full` | 建议全量同步 |
+| `Tracked` | 仅追踪变化 |
+
+这些仅为元数据提示，并非内置自动同步系统。
+
+---
+
+## 7. 栈式 UI 框架
+
+### 7.1 架构概览
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                 UIManager（MonoBehaviour）               │
+│               栈式 UI 管理器单例                         │
+├─────────────────────────────────────────────────────────┤
+│  面板栈（按层级）│ 覆盖层管理 │ Toast 管理 │ 弹窗队列    │
+├─────────────────────────────────────────────────────────┤
+│  UIRegistry     │  EventBus 集成                        │
+│  ResourceLocation 标识符                                │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### 7.3 挂载组件到对象
+### 7.2 UILayer 常量
 
-```gdscript
-ComponentHost.set_component(node, HEALTH, 15)
-var hp = ComponentHost.get_component(node, HEALTH)
-
-ComponentHost.set_component(resource, HEALTH, 100)
-
-var container = ComponentHost.get_container(node)
-var json = container.encode(JsonOps.INSTANCE)
+```csharp
+UILayer.Scene   // 0
+UILayer.Normal  // 100
+UILayer.Popup   // 200
+UILayer.Toast   // 300
+UILayer.System  // 400
 ```
 
-### 7.4 通过注册表体系解码
+### 7.3 UIPanel
 
-```gdscript
-var decoded_container := ComponentContainer.new()
-var result = decoded_container.decode(json.get_value(), JsonOps.INSTANCE)
+创建继承 `UIPanel` 的 MonoBehaviour：
 
-var result2 = decoded_container.decode(
-    json.get_value(),
-    JsonOps.INSTANCE,
-    component_reg
-)
+```csharp
+using MinecraftStyleFramework.UI;
+using System.Collections.Generic;
+
+public class InventoryPanel : UIPanel
+{
+    public override void OnInit()
+    {
+        // 首次实例化时调用一次
+    }
+
+    public override void OnOpen(Dictionary<string, object> data = null)
+    {
+        // 每次打开时调用
+        if (data != null && data.TryGetValue("tab", out var tab))
+            SelectTab((string)tab);
+    }
+
+    public override void OnPause() { /* 被新面板覆盖时 */ }
+    public override void OnResume() { /* 上方面板关闭后恢复 */ }
+    public override void OnClose() { /* 面板关闭时 */ }
+    public override void OnPanelDestroy() { /* 从缓存中移除时 */ }
+}
 ```
 
-若未显式传入注册表，`ComponentContainer.decode()` 会默认从 `RegistryManager` 查找 `"component_type"` 注册表。
+### 7.4 UIRegistry 配置
 
-### 7.5 持久化策略
+```csharp
+using MinecraftStyleFramework.Registry;
+using MinecraftStyleFramework.UI;
+using MinecraftStyleFramework.Utils;
 
-- `NONE`
-- `ALWAYS`
-- `NON_DEFAULT`
+// 注册 UIRegistry
+var uiReg = new UIRegistry();
+RegistryManager.Instance.RegisterRegistry("ui", uiReg);
 
-### 7.6 网络同步标签
+// 注册面板（Prefab 必须包含 UIPanel 组件）
+uiReg.RegisterPanel(
+    ResourceLocation.FromString("game:inventory"),
+    inventoryPrefab,
+    UILayer.Normal,
+    UIPanelCacheMode.Cache
+);
 
-- `NONE`
-- `FULL`
-- `TRACKED`
-
-这些只是元数据提示，并不是内置的自动同步系统。
-
-## 8. ResourceLocation 校验规则
-
-- **namespace**：小写 `a-z`、数字 `0-9`、`_`、`-`、`.`
-- **path**：小写 `a-z`、数字 `0-9`、`_`、`-`、`.`、`/`
-
-```gdscript
-var result = ResourceLocation.parse("minecraft:items/diamond_sword")
-var bad = ResourceLocation.parse("Minecraft:ITEMS")
-ResourceLocation.is_valid("demo:block.stone")
+// 注册 Toast（Prefab 必须包含 UIToast 组件）
+uiReg.RegisterToast(
+    ResourceLocation.FromString("game:item_toast"),
+    toastPrefab
+);
 ```
 
-## 9. 使用须知
+### 7.5 UIManager 核心 API
 
-- 当前插件只注册 4 个 Autoload：`RegistryManager`、`EventBus`、`I18NManager`、`UIManager`。
-- Data Component 类型注册必须走 `RegistryManager`，不得额外引入新的 Autoload。
-- 当前 Codec 层聚焦 `JsonOps` 与 `GodotResourceOps` 两类声明式编解码载体。
-- `demo/` 下的示例仍是本仓库最直接的使用参考。
+```csharp
+// 打开面板
+UIManager.Instance.OpenPanel(
+    ResourceLocation.FromString("game:inventory"),
+    new Dictionary<string, object> { { "tab", "weapons" } }
+);
+
+// 返回（弹出栈顶面板）
+UIManager.Instance.Back(UILayer.Normal);
+
+// 关闭指定面板
+UIManager.Instance.ClosePanel(ResourceLocation.FromString("game:inventory"));
+
+// 关闭所有面板
+UIManager.Instance.CloseAll();
+
+// 检查面板是否打开（O(1)）
+bool open = UIManager.Instance.IsPanelOpen(ResourceLocation.FromString("game:inventory"));
+
+// 覆盖层
+UIManager.Instance.AddOverlay(ResourceLocation.FromString("game:hud"), hudObject, UILayer.Scene);
+UIManager.Instance.SetOverlayVisible(ResourceLocation.FromString("game:hud"), false);
+UIManager.Instance.RemoveOverlay(ResourceLocation.FromString("game:hud"));
+
+// Toast 通知
+UIManager.Instance.ShowToast(
+    ResourceLocation.FromString("game:item_toast"),
+    new Dictionary<string, object> { { "item", "铁剑" } },
+    3.0f
+);
+UIManager.Instance.DismissAllToasts();
+
+// 弹窗队列（FIFO + 优先级）
+UIManager.Instance.QueuePopup(
+    ResourceLocation.FromString("game:daily_reward"),
+    null, priority: 10
+);
+```
+
+### 7.6 安全与性能
+
+- 同面板防重复打开保护
+- 递归导航保护（`MaxOpenDepth = 8`）
+- `_activePanelIds` 提供 O(1) 活跃面板查询
+- 缓存面板 LRU 淘汰策略（`MaxCachedPanels = 10`）
+
+---
+
+## 8. 程序集结构
+
+```
+MinecraftStyleFramework.asmdef          — 运行时程序集
+MinecraftStyleFramework.Editor.asmdef   — 仅编辑器程序集
+MinecraftStyleFramework.Tests.asmdef    — 测试程序集（EditMode）
+```
+
+命名空间层级：
+- `MinecraftStyleFramework.Utils`
+- `MinecraftStyleFramework.Registry`
+- `MinecraftStyleFramework.Events`
+- `MinecraftStyleFramework.Events.UI`
+- `MinecraftStyleFramework.Codec`
+- `MinecraftStyleFramework.Codec.Ops`
+- `MinecraftStyleFramework.Components`
+- `MinecraftStyleFramework.Tags`
+- `MinecraftStyleFramework.I18N`
+- `MinecraftStyleFramework.UI`
+
+---
+
+## 9. 从 Godot GDScript 迁移说明
+
+| Godot 概念 | Unity 对应 |
+|---|---|
+| `Autoload` 单例 | 静态 `Instance` 属性 / `MonoBehaviour` + `DontDestroyOnLoad` |
+| `RefCounted` | 普通 C# 类（GC 管理） |
+| `Variant` | `object` / 泛型 `<T>` |
+| `Callable` | `Func<>` / `Action<>` |
+| `Signal` | C# `event` / `Action` |
+| `PackedScene.instantiate()` | `Object.Instantiate(prefab)` |
+| `Dictionary`（无类型） | `Dictionary<TKey, TValue>` |
+| `StringName` | `string` |
+
+---
 
 ## 10. 反馈
 
