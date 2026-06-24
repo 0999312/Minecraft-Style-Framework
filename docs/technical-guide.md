@@ -1,430 +1,567 @@
-# Minecraft-Style-Framework Technical Guide
+# Minecraft-Style-Framework Technical Guide (Unity C#)
 
-This is the primary technical documentation for the project. It contains API-oriented introductions, architecture notes, usage examples, and implementation constraints.
+This is the primary technical documentation for the Unity C# edition. It contains API introductions, architecture notes, usage examples, and implementation details.
 
 For the Chinese edition, see [`technical-guide.zh-CN.md`](./technical-guide.zh-CN.md).
 
+---
+
 ## 1. Introduction
 
-**Minecraft-Style-Framework** is a Godot game feature framework inspired by the underlying architectural design of Minecraft, especially data-driven patterns and decoupled systems. It is suitable for games with many items, event-driven interactions, and strong extensibility requirements.
+**Minecraft-Style-Framework** is a Unity game feature framework inspired by Minecraft's underlying architectural design — especially data-driven patterns, decoupled systems, and extensibility. It is suitable for games with many items, event-driven interactions, and strong modularity requirements.
+
+**Target:** Unity 2022 LTS | C# 9.0 (.NET Standard 2.1)
+
+**Dependency:** Newtonsoft.Json (Json.NET)
+
+---
 
 ## 2. Features
 
-- **ResourceLocation**: Namespace-based identifiers like `namespace:path`, with Mojang-style validation rules.
-- **Registry & RegistryManager**: Structured registries for centralized game data management.
-- **EventBus**: Decoupled global event dispatching with cancellation and Godot `Signal` bridging.
-- **Tag System**: Dynamic grouping of registry entries without modifying their implementation.
-- **I18n**: JSON-based localization support.
-- **Codec System**: DFU-style declarative codecs for JSON and Godot Resource formats.
-- **Data Component System**: Minecraft-style attachable data components with persistence policies and optional network-sync hints.
-- **UI Framework**: Stack-based UI framework integrated with the registry and event systems.
-- **Editor Inspector Support**: Inspector extensions for CodecResource and component visualization.
+| Module | Description |
+|--------|-------------|
+| **ResourceLocation** | `namespace:path` identifiers with Mojang-style validation |
+| **RegistryBase / RegistryManager** | Type-safe centralized registries for game data |
+| **EventBus** | Decoupled global event dispatching with cancellation |
+| **Tag System** | Dynamic grouping of registry entries without modifying objects |
+| **I18N** | JSON-based localization with nested key support |
+| **Codec System** | DFU-style declarative encode/decode for JSON and object formats |
+| **Data Component System** | Attachable data with persistence policies and network sync hints |
+| **UI Framework** | Stack-based UI with panel stacks, overlays, toasts, popup queues |
+
+---
 
 ## 3. Installation
 
-1. Copy `addons/mc_game_framework/` into your Godot project's `addons/` directory.
-2. Enable `Minecraft-Style-Framework` in **Project -> Project Settings -> Plugins**.
-3. After enabling the plugin, Godot registers four Autoload singletons:
-   - `RegistryManager`
-   - `EventBus`
-   - `I18NManager`
-   - `UIManager`
+1. Copy `Assets/Plugins/MinecraftStyleFramework/` into your Unity project's `Assets/` folder.
+2. Install **Newtonsoft.Json** via Unity Package Manager:
+   - Window → Package Manager → Add package by name: `com.unity.nuget.newtonsoft-json`
+3. Access framework singletons in your code:
+   - `RegistryManager.Instance`
+   - `EventBus.Instance`
+   - `I18NManager.Instance`
+   - `UIManager.Instance` (requires a `UIManager` MonoBehaviour on a `DontDestroyOnLoad` GameObject)
+
+### UIManager Setup
+
+Create an empty GameObject in your first scene, attach the `UIManager` component. It auto-registers as singleton via `DontDestroyOnLoad`.
+
+---
 
 ## 4. Core Modules & Usage
 
 ### 4.1 ResourceLocation
 
-`ResourceLocation` is the core identifier in the framework. It formats IDs as `namespace:path`.
+`ResourceLocation` is the core identifier throughout the framework, formatted as `namespace:path`.
 
-```gdscript
-var sword_id = ResourceLocation.from_string("my_mod:iron_sword")
-var arrow_id = ResourceLocation.new("my_mod", "arrow")
+```csharp
+using MinecraftStyleFramework.Utils;
+
+// Simple construction
+var swordId = new ResourceLocation("my_mod", "iron_sword");
+
+// Parse from string (lenient, returns null on failure)
+var arrowId = ResourceLocation.FromString("my_mod:arrow");
+
+// Strict parsing with validation (returns DataResult)
+var result = ResourceLocation.Parse("my_mod:items/diamond_sword");
+if (result.IsSuccess)
+{
+    ResourceLocation id = result.Value;
+}
+
+// Validation check
+bool valid = ResourceLocation.IsValid("demo:block.stone"); // true
+bool invalid = ResourceLocation.IsValid("Demo:ITEMS");     // false
 ```
+
+**Validation Rules:**
+- **Namespace:** lowercase `a-z`, digits `0-9`, `_`, `-`, `.`
+- **Path:** lowercase `a-z`, digits `0-9`, `_`, `-`, `.`, `/`
+
+**Key Design:** Implements `IEquatable<ResourceLocation>` with proper `GetHashCode()`, so it can be used directly as a Dictionary key.
+
+---
 
 ### 4.2 Registry System
 
-Extend `RegistryBase` to manage a specific kind of data.
+Use `RegistryBase<T>` for type-safe registries or `RegistryBase` (non-generic) for heterogeneous entries.
 
-```gdscript
-extends RegistryBase
-class_name ItemRegistry
+```csharp
+using MinecraftStyleFramework.Registry;
+using MinecraftStyleFramework.Utils;
+using UnityEngine;
 
-func register_item(id: ResourceLocation, item_resource: Resource) -> void:
-    register(id, item_resource)
+// Define a typed registry
+public class ItemRegistry : RegistryBase<ScriptableObject>
+{
+    protected override string GetExpectedTypeName() => "ItemData";
+}
 
-func _get_expected_type_name() -> String:
-    return "ItemInfo"
+// Register a registry instance
+var itemRegistry = new ItemRegistry();
+RegistryManager.Instance.RegisterRegistry("item", itemRegistry);
 
-var registry = ItemRegistry.new()
-var item_id = ResourceLocation.from_string("demo:sword")
-registry.register_item(item_id, preload("res://demo/sword.tscn"))
-var my_sword_node = registry.instantiate_item(item_id)
+// Register entries
+var swordId = new ResourceLocation("demo", "sword");
+itemRegistry.Register(swordId, swordAsset);
+
+// Retrieve entries
+var item = itemRegistry.GetEntry(swordId);
+bool exists = itemRegistry.HasEntry(swordId);
 ```
+
+---
 
 ### 4.3 EventBus
 
-Events derive from the abstract `Event` class.
+Events inherit from the abstract `Event` class. The EventBus supports cancellation.
 
-```gdscript
-extends Event
-class_name ItemUsedEvent
+```csharp
+using MinecraftStyleFramework.Events;
+using MinecraftStyleFramework.Utils;
 
-var user: Node
-var item_id: ResourceLocation
+// Define a custom event
+public class ItemUsedEvent : Event
+{
+    public GameObject User { get; }
+    public ResourceLocation ItemId { get; }
 
-func _init(p_user: Node, p_item_id: ResourceLocation):
-    user = p_user
-    item_id = p_item_id
+    public ItemUsedEvent(GameObject user, ResourceLocation itemId)
+    {
+        User = user;
+        ItemId = itemId;
+    }
+}
 
-func _ready():
-    EventBus.subscribe("ItemUsedEvent", _on_item_used)
+// Subscribe
+EventBus.Instance.Subscribe<ItemUsedEvent>(evt =>
+{
+    var e = evt as ItemUsedEvent;
+    Debug.Log($"Item used: {e.ItemId}");
+});
 
-func _on_item_used(event: Event):
-    var e = event as ItemUsedEvent
-    if e:
-        print("Item used: ", e.item_id.to_string())
+// Publish
+var usedEvent = new ItemUsedEvent(player, swordId);
+EventBus.Instance.Publish(usedEvent);
 
-func use_item(item: ResourceLocation):
-    var event = ItemUsedEvent.new(self, item)
-    EventBus.publish(event)
-
-EventBus.bind_signal($MyButton.pressed, func(): return ButtonPressedEvent.new())
+// Cancel an event (stops further listener processing)
+EventBus.Instance.Subscribe<ItemUsedEvent>(evt =>
+{
+    evt.Cancel(); // downstream listeners won't receive this
+});
 ```
+
+---
 
 ### 4.4 Tag System
 
-```gdscript
-var weapon_tag = Tag.new(ResourceLocation.from_string("registry:item"))
+Tags allow dynamic grouping of registry entries without modifying their implementation.
 
-weapon_tag.add_entry(ResourceLocation.from_string("demo:sword"))
-weapon_tag.add_entry(ResourceLocation.from_string("demo:bow"))
+```csharp
+using MinecraftStyleFramework.Tags;
+using MinecraftStyleFramework.Utils;
 
-if weapon_tag.has_entry(current_item_id):
-    print("This is a weapon!")
-```
+// Create a tag for a specific registry
+var weaponTag = new Tag(ResourceLocation.FromString("registry:item"));
 
-## 5. Stack-based UI Framework
+// Add entries
+weaponTag.AddEntry(ResourceLocation.FromString("demo:sword"));
+weaponTag.AddEntry(ResourceLocation.FromString("demo:bow"));
 
-The UI system integrates `UIManager`, `UIRegistry`, `EventBus`, and `ResourceLocation`.
-
-### 5.1 Architecture Overview
-
-```text
-┌───────────────────────────────────────────────────────────┐
-│                     UIManager (Autoload)                  │
-│               Stack-based UI Manager Singleton            │
-├───────────────────────────────────────────────────────────┤
-│  Panel Stacks  │ Overlay Manager │ Toast Manager │ Popup  │
-│  (per-layer)   │ (persistent UI) │ (auto-dismiss)│ Queue  │
-├───────────────────────────────────────────────────────────┤
-│  UIRegistry (extends RegistryBase, via RegistryManager)   │
-│  EventBus integration  │  ResourceLocation identifiers    │
-└───────────────────────────────────────────────────────────┘
-```
-
-### 5.2 File Structure
-
-```text
-addons/mc_game_framework/
-├── autoload/
-│   └── ui_manager.gd
-├── registry/
-│   └── ui_registry.gd
-├── ui/
-│   ├── ui_layer.gd
-│   ├── ui_panel.gd
-│   └── ui_toast.gd
-├── event/ui/
-│   ├── ui_open_event.gd
-│   ├── ui_close_event.gd
-│   ├── ui_pause_event.gd
-│   └── ui_resume_event.gd
-└── mc_game_framework.gd
-```
-
-### 5.3 UILayer
-
-```gdscript
-extends RefCounted
-class_name UILayer
-
-const SCENE  := 0
-const NORMAL := 100
-const POPUP  := 200
-const TOAST  := 300
-const SYSTEM := 400
-
-static func get_all_layers() -> Array[int]:
-    return [SCENE, NORMAL, POPUP, TOAST, SYSTEM]
-```
-
-### 5.4 UIPanel
-
-```gdscript
-extends Control
-class_name UIPanel
-
-var panel_id: ResourceLocation
-var ui_layer: int = UILayer.NORMAL
-var cache_mode: int = CacheMode.NONE
-
-enum CacheMode {
-    NONE,
-    CACHE,
+// Query
+if (weaponTag.HasEntry(currentItemId))
+{
+    Debug.Log("This is a weapon!");
 }
 
-func _on_init() -> void: pass
-func _on_open(data: Dictionary = {}) -> void: pass
-func _on_pause() -> void: pass
-func _on_resume() -> void: pass
-func _on_close() -> void: pass
-func _on_destroy() -> void: pass
+// Get all entries
+var entries = weaponTag.GetEntries();
 ```
 
-### 5.5 UIRegistry
+---
 
-```gdscript
-extends RegistryBase
-class_name UIRegistry
+### 4.5 I18N System
 
-func register_panel(id: ResourceLocation, scene: PackedScene,
-                     default_layer: int = UILayer.NORMAL,
-                     cache_mode: int = UIPanel.CacheMode.NONE) -> void:
-    register(id, {"scene": scene, "default_layer": default_layer,
-                   "cache_mode": cache_mode})
+JSON-based localization with nested key support and placeholder replacement.
+
+```csharp
+using MinecraftStyleFramework.I18N;
+
+// Load translations from JSON string
+string enJson = @"{
+    ""ui"": {
+        ""title"": ""My Game"",
+        ""greeting"": ""Hello, {0}!""
+    },
+    ""item"": {
+        ""sword"": ""Iron Sword""
+    }
+}";
+I18NManager.Instance.LoadTranslation("en", enJson);
+
+// Set language (publishes LanguageChangedEvent)
+I18NManager.Instance.SetLanguage("en");
+
+// Get text (keys are dot-separated)
+string title = I18NManager.Instance.GetText("ui.title");       // "My Game"
+string greet = I18NManager.Instance.GetText("ui.greeting", "Player"); // "Hello, Player!"
 ```
 
-Register it through:
+---
 
-```gdscript
-RegistryManager.register_registry("ui", UIRegistry.new())
-```
+## 5. Codec System
 
-### 5.6 UIManager Core API
-
-```gdscript
-func open_panel(id: ResourceLocation, data: Dictionary = {},
-                layer_override: int = -1) -> UIPanel
-func back(layer: int = UILayer.NORMAL) -> void
-func close_panel(id: ResourceLocation) -> void
-func close_all(layer: int = -1) -> void
-func get_top_panel(layer: int = UILayer.NORMAL) -> UIPanel
-func is_panel_open(id: ResourceLocation) -> bool
-
-func add_overlay(id: ResourceLocation, overlay: Control,
-                 layer: int = UILayer.SCENE) -> void
-func remove_overlay(id: ResourceLocation) -> void
-func get_overlay(id: ResourceLocation) -> Control
-func set_overlay_visible(id: ResourceLocation, visible: bool) -> void
-
-func show_toast(toast_id: ResourceLocation, data: Dictionary = {},
-                duration: float = 3.0) -> UIToast
-func dismiss_toast(toast: UIToast) -> void
-func dismiss_all_toasts() -> void
-
-func queue_popup(panel_id: ResourceLocation, data: Dictionary = {},
-                 priority: int = 0) -> void
-```
-
-### 5.7 Safety and Performance Notes
-
-- Same-panel guard prevents duplicate opens.
-- Recursive open protection uses `MAX_OPEN_DEPTH := 8`.
-- `_active_panel_ids` provides O(1) active-panel lookup.
-- Cached panels are limited by `MAX_CACHED_PANELS := 10` with LRU eviction.
-
-### 5.8 Usage Example
-
-```gdscript
-var ui_reg: UIRegistry = RegistryManager.get_registry("ui")
-
-ui_reg.register_panel(
-    ResourceLocation.from_string("game:inventory"),
-    preload("res://scenes/ui/inventory.tscn"),
-    UILayer.NORMAL, UIPanel.CacheMode.CACHE
-)
-
-UIManager.open_panel(
-    ResourceLocation.from_string("game:inventory"),
-    {"selected_tab": "weapons"}
-)
-
-UIManager.queue_popup(ResourceLocation.from_string("game:daily_reward"), {}, 10)
-UIManager.show_toast(ResourceLocation.from_string("game:item_toast"),
-                     {"item": "Iron Sword", "count": 1}, 3.0)
-```
-
-## 6. Codec System
-
-### 6.1 Architecture
+### 5.1 Architecture
 
 | Layer | Responsibility | Key Classes |
 |-------|---------------|-------------|
-| **Result Layer** | Decoded values, diagnostics, partial-success state | `DataResult` |
-| **Declaration Layer** | Encoding and decoding declarations | `Codec`, `MapCodec` |
-| **Carrier Layer** | Storage-format adaptation | `DynamicOps`, `JsonOps`, `GodotResourceOps` |
+| **Result Layer** | Decoded values, diagnostics, partial-success | `DataResult<T>` |
+| **Declaration Layer** | Encoding/decoding rules | `Codec<T>`, `MapCodec<T>` |
+| **Carrier Layer** | Storage-format adaptation | `DynamicOps`, `JsonOps`, `UnityResourceOps` |
 
-### 6.2 DataResult
+### 5.2 DataResult
 
-```gdscript
-var result = codec.decode(data, JsonOps.INSTANCE)
-if result.is_success():
-    var value = result.get_value()
-elif result.is_partial():
-    var partial = result.get_value()
-    for d in result.get_diagnostics():
-        print(d)
-else:
-    print("Error: ", result.get_error())
+```csharp
+using MinecraftStyleFramework.Codec;
+
+var result = codec.Decode(data, JsonOps.Instance);
+if (result.IsSuccess)
+{
+    var value = result.Value;
+}
+else if (result.IsPartial)
+{
+    var partial = result.Value;
+    foreach (var d in result.Diagnostics)
+        Debug.Log(d);
+}
+else
+{
+    Debug.LogError($"Error: {result.ErrorMessage}");
+}
 ```
 
-### 6.3 Codec Combinators
+### 5.3 Primitive Codecs
 
-```gdscript
-Codec.BOOL()
-Codec.INT()
-Codec.FLOAT()
-Codec.STRING()
-Codec.RESOURCE_LOCATION()
+```csharp
+using MinecraftStyleFramework.Codec;
 
-Codec.INT().list_of()
-Codec.map_of(Codec.STRING(), Codec.INT())
+Codec.Bool    // Codec<bool>
+Codec.Int     // Codec<int>
+Codec.Float   // Codec<float>
+Codec.String  // Codec<string>
+Codec.ResourceLocation  // Codec<ResourceLocation>
+```
 
-var item_codec = Codec.record(
-    MapCodec.build(
-        [
-            Codec.STRING().field_of("name").for_getter(func(item): return item.name),
-            Codec.INT().field_of("damage").for_getter(func(item): return item.damage),
-            Codec.FLOAT().optional_field_of("weight", 1.0).for_getter(func(item): return item.weight),
-        ],
-        func(name, damage, weight):
-            return ItemData.new(name, damage, weight)
-    )
+### 5.4 Codec Combinators
+
+```csharp
+// List
+Codec<List<int>> intList = Codec.Int.ListOf();
+
+// Map
+Codec<Dictionary<string, int>> stringIntMap = Codec.MapOf(Codec.String, Codec.Int);
+
+// Record (structured object)
+var itemCodec = Codec.Record(MapCodec.Build<ItemData>(
+    new IMapCodecField<ItemData>[]
+    {
+        Codec.String.FieldOf("name").ForGetter<ItemData>(item => item.Name),
+        Codec.Int.FieldOf("damage").ForGetter<ItemData>(item => item.Damage),
+        Codec.Float.OptionalFieldOf("weight", () => 1.0f).ForGetter<ItemData>(item => item.Weight),
+    },
+    args => new ItemData((string)args[0], (int)args[1], (float)args[2])
+));
+
+// Xmap (transform)
+Codec<MyEnum> enumCodec = Codec.String.Xmap(
+    str => Enum.Parse<MyEnum>(str),
+    val => val.ToString()
+);
+
+// FlatXmap (fallible transform)
+Codec<int> positiveInt = Codec.Int.FlatXmap<int>(
+    v => v > 0 ? DataResult<int>.Success(v) : DataResult<int>.Error("Must be positive"),
+    v => DataResult<int>.Success(v)
+);
+```
+
+### 5.5 DynamicOps
+
+The same codec works with different storage formats:
+
+```csharp
+using MinecraftStyleFramework.Codec.Ops;
+
+// Encode to JSON
+var jsonResult = itemCodec.Encode(myItem, JsonOps.Instance);
+
+// Encode to Dictionary (for Unity serialization)
+var dictResult = itemCodec.Encode(myItem, UnityResourceOps.Instance);
+
+// Decode from JSON
+var decoded = itemCodec.Decode(jsonData, JsonOps.Instance);
+```
+
+---
+
+## 6. Data Component System
+
+Data Components can be attached to any object (GameObjects, plain C# objects, ScriptableObjects).
+
+### 6.1 Define Component Types
+
+```csharp
+using MinecraftStyleFramework.Components;
+using MinecraftStyleFramework.Codec;
+using MinecraftStyleFramework.Utils;
+
+// Wrap Codec.Int as Codec<object> for ComponentType
+var healthCodec = Codec.Int.Xmap<object>(v => (object)v, o => (int)o);
+
+var HEALTH = new ComponentType.Builder(
+    new ResourceLocation("game", "health"),
+    healthCodec
 )
-
-codec.xmap(decode_fn, encode_fn)
-codec.flat_xmap(decode_fn, encode_fn)
-Codec.either(Codec.INT(), Codec.STRING())
-Codec.dispatch("type", Codec.STRING(), func(type_name): return get_codec_for(type_name))
+.WithDefault(() => 20)
+.Persistent(PersistentPolicy.Always)
+.WithNetworkSync(NetworkSyncTag.Full)
+.Build();
 ```
 
-### 6.4 DynamicOps
+### 6.2 Register Component Types
 
-```gdscript
-var codec = item_codec()
-var json_result = codec.encode(item, JsonOps.INSTANCE)
-var res_result = codec.encode(item, GodotResourceOps.INSTANCE)
+```csharp
+using MinecraftStyleFramework.Registry;
+
+// Register the ComponentTypeRegistry
+if (!RegistryManager.Instance.HasRegistry(ComponentTypeRegistry.RegistryKey))
+{
+    RegistryManager.Instance.RegisterRegistry(
+        ComponentTypeRegistry.RegistryKey,
+        new ComponentTypeRegistry()
+    );
+}
+
+var reg = RegistryManager.Instance.GetRegistry<ComponentTypeRegistry>(ComponentTypeRegistry.RegistryKey);
+reg.RegisterComponentType(HEALTH);
 ```
 
-### 6.5 CodecResource
+### 6.3 Attach Components to Objects
 
-```gdscript
-extends CodecResource
-class_name MyItemResource
+```csharp
+using MinecraftStyleFramework.Components;
 
-@export var item_name: String = ""
-@export var damage: int = 0
+// Set component on any object
+ComponentHost.SetComponent(gameObject, HEALTH, 15);
 
-static func get_type_id() -> String:
-    return "mymod:item"
+// Get component
+int hp = ComponentHost.GetComponent<int>(gameObject, HEALTH); // 15
 
-static func get_codec() -> Codec:
-    return Codec.record(MapCodec.build([
-        Codec.STRING().field_of("item_name").for_getter(func(r): return r.item_name),
-        Codec.INT().field_of("damage").for_getter(func(r): return r.damage),
-    ], func(name, dmg): return MyItemResource.new()))
+// Check existence
+bool has = ComponentHost.HasComponent(gameObject, HEALTH); // true
+
+// Encode all components
+var container = ComponentHost.GetContainer(gameObject);
+var json = container.Encode(JsonOps.Instance);
 ```
 
-## 7. Data Component System
+### 6.4 Decode Components
 
-Data Components can be attached to any `Node`, `Resource`, or `RefCounted` object.
-
-### 7.1 Define Component Types
-
-```gdscript
-var HEALTH = ComponentType.Builder.new(
-    ResourceLocation.new("game", "health"),
-    Codec.INT()
-).with_default(func(): return 20).persistent(
-    ComponentType.PersistentPolicy.ALWAYS
-).build()
+```csharp
+var newContainer = new ComponentContainer();
+var result = newContainer.Decode(json.Value, JsonOps.Instance, reg);
 ```
 
-### 7.2 Register Component Types via RegistryManager
+### 6.5 Persistence Policies
 
-Data Component types use the existing registry system. Their registry is a normal `RegistryBase` subclass, not an Autoload.
+| Policy | Behavior |
+|--------|----------|
+| `None` | Never persisted |
+| `Always` | Always included in encode output |
+| `NonDefault` | Only persisted if value differs from default |
 
-```gdscript
-if not RegistryManager.has_registry(ComponentTypeRegistry.REGISTRY_KEY):
-    RegistryManager.register_registry(
-        ComponentTypeRegistry.REGISTRY_KEY,
-        ComponentTypeRegistry.new()
-    )
+### 6.6 Network Sync Tags
 
-var component_reg: ComponentTypeRegistry = RegistryManager.get_registry(
-    ComponentTypeRegistry.REGISTRY_KEY
-)
-component_reg.register_component_type(HEALTH)
+| Tag | Meaning |
+|-----|---------|
+| `None` | No sync hint |
+| `Full` | Full value sync suggested |
+| `Tracked` | Only changes tracked |
+
+These are metadata hints only — not an automatic replication system.
+
+---
+
+## 7. Stack-based UI Framework
+
+### 7.1 Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  UIManager (MonoBehaviour)               │
+│               Stack-based UI Manager Singleton          │
+├─────────────────────────────────────────────────────────┤
+│  Panel Stacks  │ Overlay Mgr │ Toast Mgr │ Popup Queue │
+│  (per-layer)   │ (persistent)│ (auto-off)│ (priority)  │
+├─────────────────────────────────────────────────────────┤
+│  UIRegistry    │  EventBus integration                  │
+│  ResourceLocation identifiers                           │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### 7.3 Attach Components to Objects
+### 7.2 UILayer Constants
 
-```gdscript
-ComponentHost.set_component(node, HEALTH, 15)
-var hp = ComponentHost.get_component(node, HEALTH)
-
-ComponentHost.set_component(resource, HEALTH, 100)
-
-var container = ComponentHost.get_container(node)
-var json = container.encode(JsonOps.INSTANCE)
+```csharp
+UILayer.Scene   // 0
+UILayer.Normal  // 100
+UILayer.Popup   // 200
+UILayer.Toast   // 300
+UILayer.System  // 400
 ```
 
-### 7.4 Decode Through the Registry System
+### 7.3 UIPanel
 
-```gdscript
-var decoded_container := ComponentContainer.new()
-var result = decoded_container.decode(json.get_value(), JsonOps.INSTANCE)
+Create a MonoBehaviour that extends `UIPanel`:
 
-var result2 = decoded_container.decode(
-    json.get_value(),
-    JsonOps.INSTANCE,
-    component_reg
-)
+```csharp
+using MinecraftStyleFramework.UI;
+using System.Collections.Generic;
+
+public class InventoryPanel : UIPanel
+{
+    public override void OnInit()
+    {
+        // Called once on first instantiation
+    }
+
+    public override void OnOpen(Dictionary<string, object> data = null)
+    {
+        // Called each time the panel opens
+        if (data != null && data.TryGetValue("tab", out var tab))
+            SelectTab((string)tab);
+    }
+
+    public override void OnPause() { /* covered by another panel */ }
+    public override void OnResume() { /* above panel closed */ }
+    public override void OnClose() { /* panel closing */ }
+    public override void OnPanelDestroy() { /* removed from cache */ }
+}
 ```
 
-When no explicit registry is provided, `ComponentContainer.decode()` looks up the `"component_type"` registry from `RegistryManager`.
+### 7.4 UIRegistry Setup
 
-### 7.5 Persistence Policies
+```csharp
+using MinecraftStyleFramework.Registry;
+using MinecraftStyleFramework.UI;
+using MinecraftStyleFramework.Utils;
 
-- `NONE`
-- `ALWAYS`
-- `NON_DEFAULT`
+// Register UIRegistry
+var uiReg = new UIRegistry();
+RegistryManager.Instance.RegisterRegistry("ui", uiReg);
 
-### 7.6 Network Sync Tags
+// Register panels (prefab must have UIPanel component)
+uiReg.RegisterPanel(
+    ResourceLocation.FromString("game:inventory"),
+    inventoryPrefab,
+    UILayer.Normal,
+    UIPanelCacheMode.Cache
+);
 
-- `NONE`
-- `FULL`
-- `TRACKED`
-
-These are metadata hints only. They are not a built-in automatic replication system.
-
-## 8. ResourceLocation Validation Rules
-
-- **Namespace**: lowercase `a-z`, digits `0-9`, `_`, `-`, `.`
-- **Path**: lowercase `a-z`, digits `0-9`, `_`, `-`, `.`, `/`
-
-```gdscript
-var result = ResourceLocation.parse("minecraft:items/diamond_sword")
-var bad = ResourceLocation.parse("Minecraft:ITEMS")
-ResourceLocation.is_valid("demo:block.stone")
+// Register toasts (prefab must have UIToast component)
+uiReg.RegisterToast(
+    ResourceLocation.FromString("game:item_toast"),
+    toastPrefab
+);
 ```
 
-## 9. Usage Notes
+### 7.5 UIManager API
 
-- The plugin currently adds exactly four Autoloads: `RegistryManager`, `EventBus`, `I18NManager`, and `UIManager`.
-- Data Component type registration must integrate through `RegistryManager` and must not introduce a new Autoload.
-- The Codec layer currently focuses on declarative codecs over `JsonOps` and `GodotResourceOps`.
-- Demo scenes under `demo/` are the main usage reference in this repository.
+```csharp
+// Open panel
+UIManager.Instance.OpenPanel(
+    ResourceLocation.FromString("game:inventory"),
+    new Dictionary<string, object> { { "tab", "weapons" } }
+);
+
+// Back (pop top panel)
+UIManager.Instance.Back(UILayer.Normal);
+
+// Close specific panel
+UIManager.Instance.ClosePanel(ResourceLocation.FromString("game:inventory"));
+
+// Close all panels
+UIManager.Instance.CloseAll();
+
+// Check if panel is open (O(1))
+bool open = UIManager.Instance.IsPanelOpen(ResourceLocation.FromString("game:inventory"));
+
+// Overlays
+UIManager.Instance.AddOverlay(ResourceLocation.FromString("game:hud"), hudObject, UILayer.Scene);
+UIManager.Instance.SetOverlayVisible(ResourceLocation.FromString("game:hud"), false);
+UIManager.Instance.RemoveOverlay(ResourceLocation.FromString("game:hud"));
+
+// Toasts
+UIManager.Instance.ShowToast(
+    ResourceLocation.FromString("game:item_toast"),
+    new Dictionary<string, object> { { "item", "Iron Sword" } },
+    3.0f
+);
+UIManager.Instance.DismissAllToasts();
+
+// Popup queue (FIFO + priority)
+UIManager.Instance.QueuePopup(
+    ResourceLocation.FromString("game:daily_reward"),
+    null, priority: 10
+);
+```
+
+### 7.6 Safety & Performance
+
+- Duplicate open protection (same panel cannot open twice)
+- Recursive navigation guard (`MaxOpenDepth = 8`)
+- O(1) active panel lookup via `_activePanelIds` dictionary
+- LRU cache eviction for cached panels (`MaxCachedPanels = 10`)
+
+---
+
+## 8. Assembly Structure
+
+```
+MinecraftStyleFramework.asmdef          — Runtime assembly
+MinecraftStyleFramework.Editor.asmdef   — Editor-only assembly
+MinecraftStyleFramework.Tests.asmdef    — Test assembly (EditMode)
+```
+
+Namespace hierarchy:
+- `MinecraftStyleFramework.Utils`
+- `MinecraftStyleFramework.Registry`
+- `MinecraftStyleFramework.Events`
+- `MinecraftStyleFramework.Events.UI`
+- `MinecraftStyleFramework.Codec`
+- `MinecraftStyleFramework.Codec.Ops`
+- `MinecraftStyleFramework.Components`
+- `MinecraftStyleFramework.Tags`
+- `MinecraftStyleFramework.I18N`
+- `MinecraftStyleFramework.UI`
+
+---
+
+## 9. Migration Notes (from Godot GDScript)
+
+| Godot Concept | Unity Equivalent |
+|---|---|
+| `Autoload` singleton | Static `Instance` property / `MonoBehaviour` + `DontDestroyOnLoad` |
+| `RefCounted` | Plain C# class (GC-managed) |
+| `Variant` | `object` / generics `<T>` |
+| `Callable` | `Func<>` / `Action<>` |
+| `Signal` | C# `event` / `Action` |
+| `PackedScene.instantiate()` | `Object.Instantiate(prefab)` |
+| `Dictionary` (untyped) | `Dictionary<TKey, TValue>` |
+| `StringName` | `string` |
+
+---
 
 ## 10. Feedback
 

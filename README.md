@@ -1,45 +1,61 @@
-# Minecraft-Style-Framework
+# Minecraft-Style-Framework (Unity C#)
 
-Minecraft-Style-Framework is a Godot feature framework inspired by Minecraft-style data-driven architecture, decoupled systems, and extensible runtime design.
+Minecraft-Style-Framework is a Unity game feature framework inspired by Minecraft-style data-driven architecture, decoupled systems, and extensible runtime design.
 
-> English-first documentation:
-> - Technical Guide (EN): [`docs/technical-guide.md`](./docs/technical-guide.md)
-> - 技术文档（中文）: [`docs/technical-guide.zh-CN.md`](./docs/technical-guide.zh-CN.md)
+> **Target Platform:** Unity 2022 LTS | **Language:** C# 9.0 (.NET Standard 2.1)
+
+## Documentation
+
+- English Technical Guide: [`docs/technical-guide.md`](./docs/technical-guide.md)
+- 中文技术文档: [`docs/technical-guide.zh-CN.md`](./docs/technical-guide.zh-CN.md)
 
 ## Overview
 
-This repository currently provides:
+This package provides:
 
-- `ResourceLocation` identifiers
-- `RegistryBase` + `RegistryManager`
-- `EventBus`
-- Tag system
-- I18n system
-- DFU-style declarative Codec system
-- Data Component system
-- Stack-based UI framework
-- Editor inspector support
+- `ResourceLocation` identifiers (Mojang-style `namespace:path`)
+- `RegistryBase<T>` + `RegistryManager` (centralized game data management)
+- `EventBus` (decoupled pub/sub with cancellation)
+- Tag system (dynamic grouping without modifying objects)
+- I18N system (JSON-based localization)
+- DFU-style declarative Codec system (encode/decode with `JsonOps` / `UnityResourceOps`)
+- Data Component system (attachable data with persistence policies)
+- Stack-based UI framework (panel stacks, overlays, toasts, popup queues)
 
 ## Quick Start
 
-1. Copy `addons/mc_game_framework/` into your Godot project's `addons/` directory.
-2. Enable `Minecraft-Style-Framework` in **Project -> Project Settings -> Plugins**.
-3. After enabling the plugin, Godot registers four Autoload singletons:
-   - `RegistryManager`
-   - `EventBus`
-   - `I18NManager`
-   - `UIManager`
+1. Copy `Assets/Plugins/MinecraftStyleFramework/` into your Unity project.
+2. Install **Newtonsoft.Json** (Json.NET) via Package Manager or NuGet.
+3. Access singletons:
+   - `RegistryManager.Instance`
+   - `EventBus.Instance`
+   - `I18NManager.Instance`
+   - `UIManager.Instance` (attach `UIManager` MonoBehaviour to a persistent GameObject)
 
-For API details, architecture notes, usage examples, and technical caveats, read the technical guide:
+## Project Structure
 
-- English: [`docs/technical-guide.md`](./docs/technical-guide.md)
-- 中文: [`docs/technical-guide.zh-CN.md`](./docs/technical-guide.zh-CN.md)
+```
+Assets/Plugins/MinecraftStyleFramework/
+├── Runtime/
+│   ├── MinecraftStyleFramework.asmdef
+│   ├── Utils/ResourceLocation.cs
+│   ├── Registry/
+│   ├── Event/
+│   ├── Codec/
+│   ├── Component/
+│   ├── Tag/
+│   ├── I18N/
+│   └── UI/
+├── Editor/
+│   └── MinecraftStyleFramework.Editor.asmdef
+└── Tests/
+    └── MinecraftStyleFramework.Tests.asmdef
+```
 
-## Repository Notes
+## Dependencies
 
-- Main framework code: `addons/mc_game_framework/`
-- Demo content: `demo/`
-- Plugin entry: `addons/mc_game_framework/mc_game_framework.gd`
+- **Unity 2022.3 LTS** or later
+- **Newtonsoft.Json** (Json.NET) — for Codec/JsonOps and I18N
 
 ## Feedback
 
@@ -47,9 +63,9 @@ The project is still evolving. Issues, feedback, and pull requests are welcome.
 
 ---
 
-# Minecraft-Style-Framework（中文简介）
+# Minecraft-Style-Framework（Unity C# 版，中文简介）
 
-Minecraft-Style-Framework 是一个面向 Godot 的游戏功能框架，目标是把 Minecraft 风格的数据驱动、模块解耦与高扩展性设计引入到项目开发中。
+Minecraft-Style-Framework 是一个面向 Unity 的游戏功能框架，目标是把 Minecraft 风格的数据驱动、模块解耦与高扩展性设计引入到 Unity 项目开发中。
 
 ## 文档入口
 
@@ -58,13 +74,12 @@ Minecraft-Style-Framework 是一个面向 Godot 的游戏功能框架，目标�
 
 ## 快速说明
 
-- 插件主体目录：`addons/mc_game_framework/`
-- 启用插件后会自动注册 4 个 Autoload：
-  - `RegistryManager`
-  - `EventBus`
-  - `I18NManager`
-  - `UIManager`
-- API 介绍、使用须知、架构说明与示例现已拆分到独立技术文档中。
+- 插件目录：`Assets/Plugins/MinecraftStyleFramework/`
+- 单例访问：
+  - `RegistryManager.Instance`
+  - `EventBus.Instance`
+  - `I18NManager.Instance`
+  - `UIManager.Instance`（需挂载到不销毁的 GameObject 上）
 
 ## 适合什么项目
 
