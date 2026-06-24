@@ -15,7 +15,7 @@ This package provides:
 
 - `ResourceLocation` identifiers (Mojang-style `namespace:path`)
 - `RegistryBase<T>` + `RegistryManager` (centralized game data management)
-- `EventBus` (decoupled pub/sub with cancellation)
+- `EventBus` + `AsyncEventBus` (priority-based dispatch with cancellation and async support)
 - Tag system (dynamic grouping without modifying objects)
 - I18N system (JSON-based localization)
 - DFU-style declarative Codec system (encode/decode with `JsonOps` / `UnityResourceOps`)
@@ -28,9 +28,9 @@ This package provides:
 2. Install **Newtonsoft.Json** (Json.NET) via Package Manager or NuGet.
 3. Access singletons:
    - `RegistryManager.Instance`
-   - `EventBus.Instance`
+   - `EventBusManager.Sync` / `EventBusManager.Async`
    - `I18NManager.Instance`
-   - `UIManager.Instance` (attach `UIManager` MonoBehaviour to a persistent GameObject)
+   - `UIManager.Instance` (all managers are `SingletonMonoBehaviour`, attach to a persistent GameObject)
 
 ## Project Structure
 
@@ -77,9 +77,9 @@ Minecraft-Style-Framework 是一个面向 Unity 的游戏功能框架，目标�
 - 插件目录：`Assets/Plugins/MinecraftStyleFramework/`
 - 单例访问：
   - `RegistryManager.Instance`
-  - `EventBus.Instance`
+  - `EventBusManager.Sync` / `EventBusManager.Async`
   - `I18NManager.Instance`
-  - `UIManager.Instance`（需挂载到不销毁的 GameObject 上）
+  - `UIManager.Instance`（所有 Manager 均为 `SingletonMonoBehaviour`，需挂载到持久 GameObject 上）
 
 ## 适合什么项目
 

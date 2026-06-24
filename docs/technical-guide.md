@@ -22,7 +22,7 @@ For the Chinese edition, see [`technical-guide.zh-CN.md`](./technical-guide.zh-C
 |--------|-------------|
 | **ResourceLocation** | `namespace:path` identifiers with Mojang-style validation |
 | **RegistryBase / RegistryManager** | Type-safe centralized registries for game data |
-| **EventBus** | Decoupled global event dispatching with cancellation |
+| **EventBus / AsyncEventBus** | Priority-based event dispatch with cancellation and coroutine async support |
 | **Tag System** | Dynamic grouping of registry entries without modifying objects |
 | **I18N** | JSON-based localization with nested key support |
 | **Codec System** | DFU-style declarative encode/decode for JSON and object formats |
@@ -38,13 +38,13 @@ For the Chinese edition, see [`technical-guide.zh-CN.md`](./technical-guide.zh-C
    - Window → Package Manager → Add package by name: `com.unity.nuget.newtonsoft-json`
 3. Access framework singletons in your code:
    - `RegistryManager.Instance`
-   - `EventBus.Instance`
+   - `EventBusManager.Sync` / `EventBusManager.Async`
    - `I18NManager.Instance`
-   - `UIManager.Instance` (requires a `UIManager` MonoBehaviour on a `DontDestroyOnLoad` GameObject)
+   - `UIManager.Instance`
 
-### UIManager Setup
+### Manager Setup
 
-Create an empty GameObject in your first scene, attach the `UIManager` component. It auto-registers as singleton via `DontDestroyOnLoad`.
+All managers extend `SingletonMonoBehaviour<T>`. Create an empty GameObject in your first scene and attach `EventBusManager`, `I18NManager`, and `UIManager` components. They auto-register as singletons via `DontDestroyOnLoad`.
 
 ---
 
@@ -115,11 +115,12 @@ bool exists = itemRegistry.HasEntry(swordId);
 
 ### 4.3 EventBus
 
-Events inherit from the abstract `Event` class. The EventBus supports cancellation.
+Events inherit from the `Event` class. The EventBus dispatches handlers by priority (lower = runs first) and supports cancellation via the `[Cancelable]` attribute. Access via `EventBusManager.Sync` (sync) or `EventBusManager.Async` (coroutine).
 
 ```csharp
 using MinecraftStyleFramework.Events;
 using MinecraftStyleFramework.Utils;
+using UnityEngine;
 
 // Define a custom event
 public class ItemUsedEvent : Event
@@ -134,21 +135,39 @@ public class ItemUsedEvent : Event
     }
 }
 
-// Subscribe
-EventBus.Instance.Subscribe<ItemUsedEvent>(evt =>
+// Define a cancelable event
+[Cancelable]
+public class DamageEvent : Event
 {
-    var e = evt as ItemUsedEvent;
-    Debug.Log($"Item used: {e.ItemId}");
+    public float Amount { get; }
+    public DamageEvent(float amount) { Amount = amount; }
+}
+
+// Register handlers (lower priority runs first, default 0)
+EventBusManager.Sync.Register<ItemUsedEvent>(evt =>
+{
+    Debug.Log($"Item used: {evt.ItemId}");
 });
+
+EventBusManager.Sync.Register<DamageEvent>(evt =>
+{
+    evt.SetCancelled(true); // stops downstream handlers
+}, priority: -10);
 
 // Publish
 var usedEvent = new ItemUsedEvent(player, swordId);
-EventBus.Instance.Publish(usedEvent);
+EventBusManager.Sync.Post(usedEvent);
 
-// Cancel an event (stops further listener processing)
-EventBus.Instance.Subscribe<ItemUsedEvent>(evt =>
+// Async (coroutine) variant
+EventBusManager.Async.Register<ItemUsedEvent>(evt =>
 {
-    evt.Cancel(); // downstream listeners won't receive this
+    Debug.Log($"Async: {evt.ItemId}");
+    return null; // return IEnumerator for yield-based operations
+});
+
+yield return EventBusManager.Async.Post(new ItemUsedEvent(player, swordId), cancelled =>
+{
+    Debug.Log($"Async post complete, cancelled: {cancelled}");
 });
 ```
 
@@ -406,7 +425,7 @@ These are metadata hints only — not an automatic replication system.
 │  Panel Stacks  │ Overlay Mgr │ Toast Mgr │ Popup Queue │
 │  (per-layer)   │ (persistent)│ (auto-off)│ (priority)  │
 ├─────────────────────────────────────────────────────────┤
-│  UIRegistry    │  EventBus integration                  │
+│  UIRegistry    │  EventBusManager integration              │
 │  ResourceLocation identifiers                           │
 └─────────────────────────────────────────────────────────┘
 ```

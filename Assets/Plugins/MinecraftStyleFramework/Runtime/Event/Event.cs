@@ -1,21 +1,24 @@
+using System;
+
 namespace MinecraftStyleFramework.Events
 {
-    /// <summary>
-    /// Base class for all framework events. Supports cancellation.
-    /// </summary>
-    public abstract class Event
+    public class Event
     {
-        private bool _cancelled;
+        public bool Cancelled { get; private set; }
 
-        /// <summary>Cancel the event to prevent further listener processing.</summary>
-        public void Cancel() => _cancelled = true;
+        public virtual bool IsCancelable()
+        {
+            var attributes = GetType().GetCustomAttributes(typeof(Cancelable), true);
+            return attributes.Length > 0;
+        }
 
-        /// <summary>Check if the event has been cancelled.</summary>
-        public bool IsCancelled => _cancelled;
-
-        /// <summary>
-        /// Returns the event type name. Defaults to the class name.
-        /// </summary>
-        public virtual string GetEventType() => GetType().Name;
+        public virtual void SetCancelled(bool cancelled)
+        {
+            if (!IsCancelable())
+            {
+                throw new NotSupportedException("Event is not cancelable");
+            }
+            Cancelled = Cancelled || cancelled;
+        }
     }
 }

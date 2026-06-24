@@ -22,7 +22,7 @@
 |------|------|
 | **ResourceLocation** | `namespace:path` 风格标识符，Mojang 风格合法性校验 |
 | **RegistryBase / RegistryManager** | 泛型类型安全的集中注册表体系 |
-| **EventBus** | 全局事件总线，支持取消事件 |
+| **EventBus / AsyncEventBus** | 按优先级分发的事件总线，支持取消与协程异步 |
 | **Tag 系统** | 无需修改对象即可动态分类注册表项 |
 | **I18N** | 基于 JSON 的本地化系统，支持嵌套键 |
 | **Codec 系统** | DFU 风格声明式编解码，支持 JsonOps / UnityResourceOps |
@@ -38,13 +38,13 @@
    - Window → Package Manager → 按名称添加：`com.unity.nuget.newtonsoft-json`
 3. 在代码中访问框架单例：
    - `RegistryManager.Instance`
-   - `EventBus.Instance`
+   - `EventBusManager.Sync` / `EventBusManager.Async`
    - `I18NManager.Instance`
-   - `UIManager.Instance`（需在场景中挂载 `UIManager` 组件到持久 GameObject 上）
+   - `UIManager.Instance`
 
-### UIManager 配置
+### Manager 配置
 
-在首个场景中创建空 GameObject，挂载 `UIManager` 组件。它会通过 `DontDestroyOnLoad` 自动注册为单例。
+所有 Manager 继承 `SingletonMonoBehaviour<T>`。在首个场景中创建空 GameObject，挂载 `EventBusManager`、`I18NManager`、`UIManager` 组件。它们会通过 `DontDestroyOnLoad` 自动注册为单例。
 
 ---
 
@@ -115,11 +115,12 @@ bool exists = itemRegistry.HasEntry(swordId);
 
 ### 4.3 EventBus
 
-事件继承抽象类 `Event`，EventBus 支持事件取消。
+事件继承 `Event` 类。EventBus 按优先级排序分发（数值越小越先执行），支持通过 `[Cancelable]` 特性取消事件。通过 `EventBusManager.Sync`（同步）或 `EventBusManager.Async`（协程）访问。
 
 ```csharp
 using MinecraftStyleFramework.Events;
 using MinecraftStyleFramework.Utils;
+using UnityEngine;
 
 // 定义自定义事件
 public class ItemUsedEvent : Event
@@ -134,21 +135,39 @@ public class ItemUsedEvent : Event
     }
 }
 
-// 订阅
-EventBus.Instance.Subscribe<ItemUsedEvent>(evt =>
+// 定义可取消事件
+[Cancelable]
+public class DamageEvent : Event
 {
-    var e = evt as ItemUsedEvent;
-    Debug.Log($"物品使用: {e.ItemId}");
+    public float Amount { get; }
+    public DamageEvent(float amount) { Amount = amount; }
+}
+
+// 注册处理器（优先级数值越小越先执行，默认为 0）
+EventBusManager.Sync.Register<ItemUsedEvent>(evt =>
+{
+    Debug.Log($"物品使用: {evt.ItemId}");
 });
+
+EventBusManager.Sync.Register<DamageEvent>(evt =>
+{
+    evt.SetCancelled(true); // 阻止后续处理器执行
+}, priority: -10);
 
 // 发布
 var usedEvent = new ItemUsedEvent(player, swordId);
-EventBus.Instance.Publish(usedEvent);
+EventBusManager.Sync.Post(usedEvent);
 
-// 取消事件（阻止后续监听器处理）
-EventBus.Instance.Subscribe<ItemUsedEvent>(evt =>
+// 异步（协程）版本
+EventBusManager.Async.Register<ItemUsedEvent>(evt =>
 {
-    evt.Cancel(); // 后续监听器不会收到此事件
+    Debug.Log($"异步处理: {evt.ItemId}");
+    return null; // 返回 IEnumerator 可进行 yield 操作
+});
+
+yield return EventBusManager.Async.Post(new ItemUsedEvent(player, swordId), cancelled =>
+{
+    Debug.Log($"异步发布完成，是否被取消: {cancelled}");
 });
 ```
 
@@ -403,7 +422,7 @@ var result = newContainer.Decode(json.Value, JsonOps.Instance, reg);
 ├─────────────────────────────────────────────────────────┤
 │  面板栈（按层级）│ 覆盖层管理 │ Toast 管理 │ 弹窗队列    │
 ├─────────────────────────────────────────────────────────┤
-│  UIRegistry     │  EventBus 集成                        │
+│  UIRegistry     │  EventBusManager 集成                    │
 │  ResourceLocation 标识符                                │
 └─────────────────────────────────────────────────────────┘
 ```

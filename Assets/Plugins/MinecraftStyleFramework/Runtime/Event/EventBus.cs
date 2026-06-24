@@ -3,83 +3,29 @@ using System.Collections.Generic;
 
 namespace MinecraftStyleFramework.Events
 {
-    /// <summary>
-    /// Global event bus for decoupled publish/subscribe communication.
-    /// Singleton accessed via EventBus.Instance.
-    /// </summary>
-    public sealed class EventBus
+    public class EventBus
     {
-        private static EventBus _instance;
-        public static EventBus Instance => _instance ??= new EventBus();
+        private SortedSet<TaskItemBase> Handler = new();
 
-        private readonly Dictionary<string, List<Action<Event>>> _listeners = new();
-
-        /// <summary>Subscribe to an event type.</summary>
-        public void Subscribe(string eventType, Action<Event> listener)
+        public void Register<T>(Action<T> handler, int priority) where T : Event
         {
-            if (!_listeners.TryGetValue(eventType, out var list))
-            {
-                list = new List<Action<Event>>();
-                _listeners[eventType] = list;
-            }
-
-            if (!list.Contains(listener))
-            {
-                list.Add(listener);
-            }
+            Handler.Add(new TaskItem<T>(priority, handler));
         }
 
-        /// <summary>Subscribe using generic type.</summary>
-        public void Subscribe<T>(Action<Event> listener) where T : Event =>
-            Subscribe(typeof(T).Name, listener);
-
-        /// <summary>Unsubscribe from an event type.</summary>
-        public void Unsubscribe(string eventType, Action<Event> listener)
+        public void Register<T>(Action<T> handler) where T : Event
         {
-            if (_listeners.TryGetValue(eventType, out var list))
-            {
-                list.Remove(listener);
-            }
+            Register(handler, 0);
         }
 
-        /// <summary>Unsubscribe using generic type.</summary>
-        public void Unsubscribe<T>(Action<Event> listener) where T : Event =>
-            Unsubscribe(typeof(T).Name, listener);
-
-        /// <summary>Publish an event to all subscribers.</summary>
-        public void Publish(Event evt)
+        public bool Post(Event evt)
         {
-            var eventType = evt.GetEventType();
-            if (!_listeners.TryGetValue(eventType, out var list))
+            foreach (TaskItemBase task in Handler)
             {
-                return;
+                task.Delegate(evt);
+                if (evt.Cancelled) return true;
             }
 
-            var copy = new List<Action<Event>>(list);
-            foreach (var listener in copy)
-            {
-                if (evt.IsCancelled)
-                {
-                    break;
-                }
-
-                listener(evt);
-            }
+            return evt.Cancelled;
         }
-
-        /// <summary>Remove all listeners for a specific event type.</summary>
-        public void ClearListeners(string eventType)
-        {
-            if (_listeners.TryGetValue(eventType, out var list))
-            {
-                list.Clear();
-            }
-        }
-
-        /// <summary>Remove all listeners.</summary>
-        public void ClearAllListeners() => _listeners.Clear();
-
-        /// <summary>Reset the singleton instance (useful for testing).</summary>
-        public static void Reset() => _instance = new EventBus();
     }
 }

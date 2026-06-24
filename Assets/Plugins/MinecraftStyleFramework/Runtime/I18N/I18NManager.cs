@@ -1,19 +1,15 @@
-using System;
 using System.Collections.Generic;
 using MinecraftStyleFramework.Events;
+using MinecraftStyleFramework.Utils;
 using Newtonsoft.Json.Linq;
 
 namespace MinecraftStyleFramework.I18N
 {
     /// <summary>
-    /// JSON-based localization manager.
-    /// Singleton accessed via I18NManager.Instance.
+    /// JSON-based localization manager. MonoBehaviour singleton.
     /// </summary>
-    public sealed class I18NManager
+    public sealed class I18NManager : SingletonMonoBehaviour<I18NManager>
     {
-        private static I18NManager _instance;
-        public static I18NManager Instance => _instance ??= new I18NManager();
-
         private string _currentLocale = "en";
         private readonly Dictionary<string, Dictionary<string, string>> _translations = new();
 
@@ -41,7 +37,7 @@ namespace MinecraftStyleFramework.I18N
                 UnityEngine.Debug.Log($"[I18N] Language [{langCode}] loaded with {flat.Count} entries");
                 return true;
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 UnityEngine.Debug.LogError($"[I18N] Failed to parse JSON for '{langCode}': {ex.Message}");
                 return false;
@@ -52,7 +48,7 @@ namespace MinecraftStyleFramework.I18N
         public void SetLanguage(string langCode)
         {
             _currentLocale = langCode;
-            EventBus.Instance.Publish(new LanguageChangedEvent(langCode));
+            EventBusManager.Sync.Post(new LanguageChangedEvent(langCode));
         }
 
         /// <summary>Get translated text for a key. Supports placeholder replacement {0}, {1}, etc.</summary>
@@ -99,8 +95,5 @@ namespace MinecraftStyleFramework.I18N
                 }
             }
         }
-
-        /// <summary>Reset the singleton (useful for testing).</summary>
-        public static void Reset() => _instance = new I18NManager();
     }
 }

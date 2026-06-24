@@ -12,14 +12,11 @@ namespace MinecraftStyleFramework.UI
     /// Stack-based UI manager. Manages panel stacks, overlays, toasts, and popup queues.
     /// Attach to a persistent GameObject (DontDestroyOnLoad).
     /// </summary>
-    public class UIManager : MonoBehaviour
+    public class UIManager : SingletonMonoBehaviour<UIManager>
     {
         private const int MaxOpenDepth = 8;
         private const int MaxCachedPanels = 10;
         private const string UIRegistryKey = "ui";
-
-        private static UIManager _instance;
-        public static UIManager Instance => _instance;
 
         private readonly Dictionary<int, List<UIPanel>> _panelStacks = new();
         private readonly Dictionary<string, int> _activePanelIds = new();
@@ -32,16 +29,9 @@ namespace MinecraftStyleFramework.UI
 
         private int _openDepth;
 
-        private void Awake()
+        protected override void Awake()
         {
-            if (_instance != null && _instance != this)
-            {
-                Destroy(gameObject);
-                return;
-            }
-
-            _instance = this;
-            DontDestroyOnLoad(gameObject);
+            base.Awake();
 
             foreach (var layer in UILayer.GetAllLayers())
                 EnsureLayer(layer);
@@ -113,7 +103,7 @@ namespace MinecraftStyleFramework.UI
                 var top = stack[^1];
                 top.OnPause();
                 top.gameObject.SetActive(false);
-                EventBus.Instance.Publish(new UIPauseEvent(top.PanelId, targetLayer));
+                EventBusManager.Sync.Post(new UIPauseEvent(top.PanelId, targetLayer));
             }
 
             stack.Add(panel);
@@ -122,7 +112,7 @@ namespace MinecraftStyleFramework.UI
             panel.gameObject.SetActive(true);
 
             panel.OnOpen(data);
-            EventBus.Instance.Publish(new UIOpenEvent(id, targetLayer));
+            EventBusManager.Sync.Post(new UIOpenEvent(id, targetLayer));
 
             _openDepth--;
             return panel;
@@ -144,7 +134,7 @@ namespace MinecraftStyleFramework.UI
                 var newTop = stack[^1];
                 newTop.gameObject.SetActive(true);
                 newTop.OnResume();
-                EventBus.Instance.Publish(new UIResumeEvent(newTop.PanelId, layer));
+                EventBusManager.Sync.Post(new UIResumeEvent(newTop.PanelId, layer));
             }
 
             if (layer == UILayer.Popup)
@@ -182,7 +172,7 @@ namespace MinecraftStyleFramework.UI
                 var newTop = stack[^1];
                 newTop.gameObject.SetActive(true);
                 newTop.OnResume();
-                EventBus.Instance.Publish(new UIResumeEvent(newTop.PanelId, layer));
+                EventBusManager.Sync.Post(new UIResumeEvent(newTop.PanelId, layer));
             }
 
             if (layer == UILayer.Popup)
@@ -321,7 +311,7 @@ namespace MinecraftStyleFramework.UI
                 _activePanelIds.Remove(idStr);
 
             panel.OnClose();
-            EventBus.Instance.Publish(new UICloseEvent(panel.PanelId, layer));
+            EventBusManager.Sync.Post(new UICloseEvent(panel.PanelId, layer));
             panel.transform.SetParent(null);
 
             if (panel.CacheMode == UIPanelCacheMode.Cache && !string.IsNullOrEmpty(idStr))
